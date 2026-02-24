@@ -1102,6 +1102,13 @@
     }
     if (update.type === 'full') { loadData(); return; }
 
+    // If there are new or removed nodes, do a full reload since we don't
+    // have the full node data in the diff — only IDs
+    if ((update.new && update.new.length) || (update.gone && update.gone.length)) {
+      loadData();
+      return;
+    }
+
     let needsMarkerUpdate = false;
     if (update.changed) {
       update.changed.forEach(diff => {
@@ -1119,7 +1126,6 @@
         }
       });
     }
-    if ((update.new && update.new.length) || (update.gone && update.gone.length)) needsMarkerUpdate = true;
     if (needsMarkerUpdate) renderMarkers();
   }
 

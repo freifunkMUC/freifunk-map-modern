@@ -142,8 +142,8 @@ func (fs *Store) SaveState() {
 		rn := store.RawNode{
 			NodeID:      n.NodeID,
 			Hostname:    n.Hostname,
-			IsOnline:    n.IsOnline,
-			IsGateway:   n.IsGateway,
+			IsOnline:    store.FlexBool(n.IsOnline),
+			IsGateway:   store.FlexBool(n.IsGateway),
 			Clients:     n.Clients,
 			ClientsW24:  n.ClientsW24,
 			ClientsW5:   n.ClientsW5,
@@ -167,7 +167,7 @@ func (fs *Store) SaveState() {
 				ImageName: n.ImageName,
 			},
 			Autoupdater: store.RawAutoUpd{
-				Enabled: n.Autoupdater,
+				Enabled: store.FlexBool(n.Autoupdater),
 				Branch:  n.Branch,
 			},
 		}
@@ -309,13 +309,17 @@ func (fs *Store) DiscoverAndRefresh() error {
 		}
 		if info, ok := grafanaCache[c.Key]; ok && len(info.DataPaths) > 0 {
 			for _, dp := range info.DataPaths {
+				// Skip relative paths from stale cache entries
+				if !strings.HasPrefix(dp, "http://") && !strings.HasPrefix(dp, "https://") {
+					continue
+				}
 				if idx, exists := existingURLIdx[dp]; exists {
 					for _, ak := range c.AllKeys {
 						sources[idx].CommunityKeys = store.AppendUnique(sources[idx].CommunityKeys, ak)
 					}
 					existingSources[c.Key] = true
 					log.Printf("Federation: tagged %s keys onto existing source %s (via %s)", c.Key, sources[idx].CommunityKey, dp)
-					break
+					continue
 				}
 				sources = append(sources, CommunitySource{
 					CommunityKey:  c.Key,
@@ -328,7 +332,6 @@ func (fs *Store) DiscoverAndRefresh() error {
 				existingURLIdx[dp] = len(sources) - 1
 				existingSources[c.Key] = true
 				log.Printf("Federation: added dataPath source for %s: %s", c.Key, dp)
-				break
 			}
 		}
 	}
@@ -409,7 +412,7 @@ func (fs *Store) RefreshAllSources() error {
 		// Suffix gateway node_ids with community key
 		gwRename := make(map[string]string)
 		for i := range r.data.Nodes {
-			if r.data.Nodes[i].IsGateway && r.data.Nodes[i].NodeID != "" {
+			if bool(r.data.Nodes[i].IsGateway) && r.data.Nodes[i].NodeID != "" {
 				orig := r.data.Nodes[i].NodeID
 				suffixed := orig + "_" + r.communityKey
 				gwRename[orig] = suffixed

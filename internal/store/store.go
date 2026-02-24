@@ -16,6 +16,27 @@ import (
 	"github.com/freifunkMUC/freifunk-map-modern/internal/config"
 )
 
+// FlexBool handles JSON booleans that may be encoded as bool, string ("1"/"0"/""), or number.
+type FlexBool bool
+
+func (fb *FlexBool) UnmarshalJSON(data []byte) error {
+	var raw interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	switch v := raw.(type) {
+	case bool:
+		*fb = FlexBool(v)
+	case string:
+		*fb = FlexBool(v == "true" || v == "1" || v == "yes")
+	case float64:
+		*fb = FlexBool(v != 0)
+	default:
+		*fb = false
+	}
+	return nil
+}
+
 // --- Raw JSON from meshviewer.json ---
 
 type MeshviewerData struct {
@@ -27,8 +48,8 @@ type MeshviewerData struct {
 type RawNode struct {
 	Firstseen   string       `json:"firstseen"`
 	Lastseen    string       `json:"lastseen"`
-	IsOnline    bool         `json:"is_online"`
-	IsGateway   bool         `json:"is_gateway"`
+	IsOnline    FlexBool     `json:"is_online"`
+	IsGateway   FlexBool     `json:"is_gateway"`
 	Clients     int          `json:"clients"`
 	ClientsW24  int          `json:"clients_wifi24"`
 	ClientsW5   int          `json:"clients_wifi5"`
@@ -67,8 +88,8 @@ type RawFirmware struct {
 }
 
 type RawAutoUpd struct {
-	Enabled bool   `json:"enabled"`
-	Branch  string `json:"branch"`
+	Enabled FlexBool `json:"enabled"`
+	Branch  string   `json:"branch"`
 }
 
 type RawLink struct {
@@ -283,8 +304,8 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 		n := &Node{
 			NodeID:      rn.NodeID,
 			Hostname:    rn.Hostname,
-			IsOnline:    rn.IsOnline,
-			IsGateway:   rn.IsGateway,
+			IsOnline:    bool(rn.IsOnline),
+			IsGateway:   bool(rn.IsGateway),
 			Clients:     rn.Clients,
 			ClientsW24:  rn.ClientsW24,
 			ClientsW5:   rn.ClientsW5,
@@ -293,7 +314,7 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			Model:       rn.Model,
 			Firmware:    rn.Firmware.Release,
 			FWBase:      rn.Firmware.Base,
-			Autoupdater: rn.Autoupdater.Enabled,
+			Autoupdater: bool(rn.Autoupdater.Enabled),
 			Branch:      rn.Autoupdater.Branch,
 			Owner:       rn.Owner,
 			MAC:         rn.MAC,
@@ -327,11 +348,11 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 		nodeList = append(nodeList, n)
 
 		stats.TotalNodes++
-		if rn.IsOnline {
+		if bool(rn.IsOnline) {
 			stats.OnlineNodes++
 			stats.TotalClients += rn.Clients
 		}
-		if rn.IsGateway {
+		if bool(rn.IsGateway) {
 			stats.Gateways++
 		}
 		if rn.Domain != "" {

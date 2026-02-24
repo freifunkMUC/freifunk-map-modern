@@ -371,7 +371,7 @@ func ParseNodelistToMeshviewer(data []byte) (*store.MeshviewerData, error) {
 		rn := store.RawNode{
 			NodeID:   nodeID,
 			Hostname: n.Name,
-			IsOnline: ifaceToBool(n.Status.Online),
+			IsOnline: store.FlexBool(ifaceToBool(n.Status.Online)),
 			Clients:  ifaceToInt(n.Status.Clients),
 			Lastseen: ifaceToString(n.Status.Lastcontact),
 			MAC:      nodeID,

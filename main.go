@@ -47,8 +47,17 @@ func main() {
 		if fedStore.RestoreState() {
 			log.Println("Federation mode: serving cached data, refreshing in background...")
 			go func() {
+				old := fedStore.GetSnapshot()
 				if err := fedStore.DiscoverAndRefresh(); err != nil {
 					log.Printf("Warning: background federation refresh failed: %v", err)
+					return
+				}
+				snap := fedStore.GetSnapshot()
+				log.Printf("Background refresh complete: %d nodes (%d online)",
+					snap.Stats.TotalNodes, snap.Stats.OnlineNodes)
+				diff := store.ComputeDiff(old, snap)
+				if diff != nil {
+					hub.Broadcast(diff)
 				}
 			}()
 		} else {

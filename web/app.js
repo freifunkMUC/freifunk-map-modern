@@ -284,6 +284,12 @@
 
     markerGroup = L.layerGroup().addTo(leafletMap);
     linkLayer = L.layerGroup().addTo(leafletMap);
+
+    // Client dots canvas overlay — redraws on zoom/pan
+    clientCanvas = document.createElement('canvas');
+    clientCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:450;';
+    leafletMap.getPane('overlayPane').appendChild(clientCanvas);
+    leafletMap.on('zoomend moveend resize', drawClientDots);
   }
 
   // ────────────────────── Data ──────────────────────
@@ -404,6 +410,76 @@
       marker.on('click', () => selectNode(n.node_id));
       markers[n.node_id] = marker;
       markerGroup.addLayer(marker);
+    });
+    drawClientDots();
+  }
+
+  // Draw client dots directly on a canvas overlay — fast, pixel-perfect
+  let clientCanvas = null;
+  const CLIENT_COLORS = { wifi24: '#FF8C00', wifi5: '#1DB954', other: '#9B59B6' };
+
+  function drawClientDots() {
+    if (!clientCanvas) return;
+    const size = leafletMap.getSize();
+    clientCanvas.width = size.x;
+    clientCanvas.height = size.y;
+    // Align canvas to map pane position
+    const panePos = leafletMap.getPane('overlayPane').style.transform;
+    clientCanvas.style.transform = ''; // reset — parent pane handles it
+
+    const ctx = clientCanvas.getContext('2d');
+    ctx.clearRect(0, 0, size.x, size.y);
+
+    const zoom = leafletMap.getZoom();
+    if (zoom < 15) return;
+
+    const bounds = leafletMap.getBounds();
+    const radius = 3;
+    const a = 1.2;
+    const startDistance = 10;
+
+    nodes.forEach(n => {
+      if (!n.is_online || n.clients === 0 || n.lat == null) return;
+      if (!bounds.contains([n.lat, n.lng])) return;
+
+      const p = leafletMap.latLngToContainerPoint([n.lat, n.lng]);
+      // Deterministic start angle based on node_id
+      const startAngle = (parseInt((n.node_id || '00').substr(-2), 16) / 255) * 2 * Math.PI;
+
+      const w24 = n.clients_wifi24 || 0;
+      const w5 = n.clients_wifi5 || 0;
+      let mode = 0;
+
+      ctx.beginPath();
+      ctx.fillStyle = CLIENT_COLORS.wifi24;
+
+      for (let orbit = 0, i = 0; i < n.clients; orbit++) {
+        const distance = startDistance + orbit * 2 * radius * a;
+        const spotsInOrbit = Math.floor((Math.PI * distance) / (a * radius));
+        const remaining = n.clients - i;
+
+        for (let j = 0; j < Math.min(remaining, spotsInOrbit); i++, j++) {
+          // Switch color when crossing wifi24 -> other -> wifi5 boundaries
+          if (mode !== 1 && i >= w24 + w5) {
+            mode = 1;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.fillStyle = CLIENT_COLORS.wifi5;
+          } else if (mode === 0 && i >= w24) {
+            mode = 2;
+            ctx.fill();
+            ctx.beginPath();
+            ctx.fillStyle = CLIENT_COLORS.other;
+          }
+          const angle = (2 * Math.PI / spotsInOrbit) * j;
+          const x = p.x + distance * Math.cos(angle + startAngle);
+          const y = p.y + distance * Math.sin(angle + startAngle);
+
+          ctx.moveTo(x, y);
+          ctx.arc(x, y, radius, 0, 2 * Math.PI);
+        }
+      }
+      ctx.fill();
     });
   }
 

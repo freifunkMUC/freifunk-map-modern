@@ -217,9 +217,36 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 	}
 
 	probeClient := &http.Client{Timeout: 8 * time.Second}
+	deadHosts := make(map[string]bool)
+
+	isHostDead := func(rawURL string) bool {
+		if parsed, err := url.Parse(rawURL); err == nil {
+			return deadHosts[parsed.Hostname()]
+		}
+		return false
+	}
+	markDead := func(rawURL string, err error) {
+		if err == nil {
+			return
+		}
+		errStr := err.Error()
+		if strings.Contains(errStr, "deadline exceeded") ||
+			strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "no such host") ||
+			strings.Contains(errStr, "no route to host") ||
+			strings.Contains(errStr, "network is unreachable") ||
+			strings.Contains(errStr, "tls:") {
+			if parsed, err2 := url.Parse(rawURL); err2 == nil {
+				deadHosts[parsed.Hostname()] = true
+			}
+		}
+	}
 
 	for _, base := range baseURLs {
 		configURL := base + "/config.json"
+		if isHostDead(configURL) {
+			continue
+		}
 		req, err := http.NewRequest("GET", configURL, nil)
 		if err != nil {
 			continue
@@ -228,6 +255,7 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 
 		resp, err := probeClient.Do(req)
 		if err != nil {
+			markDead(configURL, err)
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
@@ -251,6 +279,9 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 	}
 
 	for _, base := range baseURLs {
+		if isHostDead(base) {
+			continue
+		}
 		req, err := http.NewRequest("GET", base+"/", nil)
 		if err != nil {
 			continue
@@ -259,6 +290,7 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 
 		resp, err := probeClient.Do(req)
 		if err != nil {
+			markDead(base, err)
 			continue
 		}
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
@@ -286,6 +318,9 @@ func extractGrafanaFromInlineConfig(body []byte, baseURL string) GrafanaInfo {
 			return p
 		}
 		if parsedBase != nil {
+			if !strings.HasPrefix(p, "/") {
+				p = "/" + p
+			}
 			return parsedBase.Scheme + "://" + parsedBase.Host + p
 		}
 		return p

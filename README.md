@@ -19,7 +19,7 @@ A fast, modern web map for [Freifunk](https://freifunk.net/) mesh networks. Buil
 - **Search** by hostname, node ID, or model
 - **Device deprecation warnings** for end-of-life hardware
 - **No external CDN** — all vendor assets (Leaflet, uPlot) are bundled
-- **Privacy-friendly** — the only external request is to OpenStreetMap tile servers for the map background
+- **Privacy-friendly** — the only external request is to tile servers for the map background (FFMUC tiles by default, OpenStreetMap as fallback)
 
 ## Quick Start
 
@@ -72,8 +72,8 @@ Copy `config.example.json` and adjust for your community:
   // Tile layers (at least one required)
   "tileLayers": [
     {
-      "name": "OpenStreetMap",
-      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "name": "FFMUC Tiles",
+      "url": "https://tiles.ext.ffmuc.net/osm/{z}/{x}/{y}.png",
       "attribution": "&copy; OpenStreetMap contributors",
       "maxZoom": 19
     }

@@ -7,15 +7,21 @@
   "mapZoom": 6,
   "tileLayers": [
     {
-      "name": "OpenStreetMap",
-      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "name": "FFMUC Tiles",
+      "url": "https://tiles.ext.ffmuc.net/osm/{z}/{x}/{y}.png",
       "attribution": "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
       "maxZoom": 19
     },
     {
-      "name": "OSM.HOT",
-      "url": "https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
-      "attribution": "&copy; OpenStreetMap contributors, Tiles: HOT",
+      "name": "FFMUC HOT",
+      "url": "https://tiles.ext.ffmuc.net/hot/{z}/{x}/{y}.png",
+      "attribution": "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors, Tiles: HOT",
+      "maxZoom": 19
+    },
+    {
+      "name": "OpenStreetMap",
+      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "attribution": "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
       "maxZoom": 19
     }
   ]

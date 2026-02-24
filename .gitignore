@@ -5,3 +5,4 @@ config.json
 grafana_cache.json
 federation_state.json
 .github/copilot-instructions.md
+freifunk-map-linux

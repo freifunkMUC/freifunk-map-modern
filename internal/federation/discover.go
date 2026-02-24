@@ -193,6 +193,7 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 			} else if tt == "meshviewer" || tt == "ffmap" || tt == "hopglass" {
 				base := strings.TrimSuffix(u, "/")
 				c.MeshviewerURLs = append(c.MeshviewerURLs, base+"/data/meshviewer.json")
+				c.MeshviewerURLs = append(c.MeshviewerURLs, base+"/meshviewer.json")
 				if parsed, err := url.Parse(u); err == nil {
 					rootData := parsed.Scheme + "://" + parsed.Host + "/data/meshviewer.json"
 					if rootData != base+"/data/meshviewer.json" {

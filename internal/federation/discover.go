@@ -114,6 +114,7 @@ type NodelistStatus struct {
 type NodelistPosition struct {
 	Lat  interface{} `json:"lat"`
 	Long interface{} `json:"long"`
+	Lon  interface{} `json:"lon"`
 }
 
 // DiscoverCommunities fetches the Freifunk API directory.
@@ -380,6 +381,9 @@ func ParseNodelistToMeshviewer(data []byte) (*store.MeshviewerData, error) {
 		if n.Position != nil {
 			lat := ifaceToFloat(n.Position.Lat)
 			lng := ifaceToFloat(n.Position.Long)
+			if lng == 0 {
+				lng = ifaceToFloat(n.Position.Lon)
+			}
 			if lat != 0 || lng != 0 {
 				rn.Location = &store.RawLocation{
 					Latitude:  lat,

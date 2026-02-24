@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // Hub manages Server-Sent Event connections.
@@ -14,17 +15,23 @@ type Hub struct {
 	clients map[chan []byte]struct{}
 }
 
+const maxSSEClients = 1000
+
 func NewHub() *Hub {
 	return &Hub{
 		clients: make(map[chan []byte]struct{}),
 	}
 }
 
+// Subscribe returns a channel for receiving SSE data, or nil if the limit is reached.
 func (h *Hub) Subscribe() chan []byte {
-	ch := make(chan []byte, 16)
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.clients) >= maxSSEClients {
+		return nil
+	}
+	ch := make(chan []byte, 16)
 	h.clients[ch] = struct{}{}
-	h.mu.Unlock()
 	return ch
 }
 
@@ -76,7 +83,15 @@ func HandleSSE(hub *Hub) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
+		// Disable write deadline for SSE (long-lived connection)
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Time{})
+
 		ch := hub.Subscribe()
+		if ch == nil {
+			http.Error(w, "Too many SSE clients", http.StatusServiceUnavailable)
+			return
+		}
 		log.Printf("SSE client connected from %s (%d total)", r.RemoteAddr, hub.ClientCount())
 		defer func() {
 			hub.Unsubscribe(ch)

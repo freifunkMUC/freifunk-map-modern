@@ -94,7 +94,7 @@ func main() {
 		Addr:         cfg.Listen,
 		Handler:      api.GzipHandler(mux),
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 0,
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 

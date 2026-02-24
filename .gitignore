@@ -1,0 +1,6 @@
+freifunk-map
+freifunk-map-modern
+freifunk-map-*-*
+config.json
+grafana_cache.json
+federation_state.json

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Freifunk Map</title>
+<!-- All deps served from embedded binary — zero CDN -->
+<link rel="stylesheet" href="vendor/leaflet.css" />
+<link rel="stylesheet" href="vendor/uPlot.min.css" />
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <header id="header">
+    <div class="header-brand" id="header-brand">Freifunk</div>
+    <div class="header-stats" id="header-stats">Loading...</div>
+    <nav class="header-links" id="header-links"></nav>
+    <div class="header-sse" id="sse-indicator" title="Live updates">
+      <span class="sse-dot"></span>
+    </div>
+  </header>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-tabs">
+      <button class="tab active" data-tab="map-tab">Map</button>
+      <button class="tab" data-tab="graph-tab">Graph</button>
+      <button class="tab" data-tab="list-tab">Nodes</button>
+      <button class="tab" data-tab="stats-tab">Stats</button>
+      <button class="tab" data-tab="about-tab">About</button>
+    </div>
+
+    <div class="sidebar-content">
+      <div id="map-tab" class="tab-pane active">
+        <div id="search-box">
+          <input type="search" id="search-input" placeholder="Search nodes..." autocomplete="off">
+          <div id="search-results" class="search-results hidden"></div>
+        </div>
+        <div id="new-nodes-list"></div>
+        <div id="node-detail" class="hidden">
+          <button id="node-detail-close" class="detail-close">&times;</button>
+          <div id="node-detail-content"></div>
+        </div>
+      </div>
+
+      <div id="graph-tab" class="tab-pane hidden">
+        <div id="graph-controls" style="margin-bottom:8px">
+          <label style="font-size:12px;color:var(--fg-muted)">
+            <input type="checkbox" id="graph-only-online" checked> Online only
+          </label>
+          <label style="font-size:12px;color:var(--fg-muted);margin-left:12px">
+            <input type="checkbox" id="graph-hide-vpn" checked> Hide VPN links
+          </label>
+        </div>
+        <p style="font-size:12px;color:var(--fg-muted)">Force-directed topology. Drag nodes, scroll to zoom, click for details.</p>
+      </div>
+
+      <div id="list-tab" class="tab-pane hidden">
+        <div class="list-controls">
+          <input type="search" id="list-search" placeholder="Filter...">
+          <select id="list-filter">
+            <option value="all">All</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="new">New (7 days)</option>
+            <option value="gateway">Gateways</option>
+            <option value="haspos">Has Location</option>
+            <option value="nopos">No Location</option>
+            <option value="hasstats">Has Statistics</option>
+          </select>
+          <select id="list-community" class="hidden">
+            <option value="">All Communities</option>
+          </select>
+          <select id="list-domain">
+            <option value="">All Domains</option>
+          </select>
+          <select id="list-sort">
+            <option value="clients">Sort: Clients ↓</option>
+            <option value="name">Sort: Name</option>
+            <option value="uptime">Sort: Uptime ↓</option>
+            <option value="links">Sort: Links ↓</option>
+            <option value="firstseen">Sort: Newest</option>
+          </select>
+        </div>
+        <div id="node-list" class="node-list"></div>
+      </div>
+
+      <div id="stats-tab" class="tab-pane hidden">
+        <div id="stats-content"></div>
+      </div>
+
+      <div id="about-tab" class="tab-pane hidden">
+        <div id="about-content">
+          <h2>About</h2>
+          <p>Modern Freifunk mesh network map.</p>
+          <p>Data refreshed every 60s with live SSE updates.</p>
+          <p>In federation mode, all Freifunk communities are auto-discovered from <a href="https://api.freifunk.net/" target="_blank">api.freifunk.net</a>. Uses meshviewer.json when available, falls back to nodelist.json.</p>
+          <p>License: AGPL-3.0</p>
+          <h3 style="margin-top:16px">URL Parameters</h3>
+          <p style="font-size:12px;color:var(--fg-muted)">
+            <code>?domain=ffmuc_muc_cty</code> &ndash; filter by domain/community<br>
+            <code>?status=online</code> &ndash; online/offline only<br>
+            <code>?model=Archer</code> &ndash; filter by model<br>
+            <code>#!node_id</code> &ndash; select a node<br>
+            <code>#graph</code> &ndash; open graph view
+          </p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main id="map"></main>
+  <canvas id="graph-canvas" class="hidden"></canvas>
+</div>
+
+<script src="vendor/leaflet.js"></script>
+<script src="vendor/uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "listen": ":8080",
+  "siteName": "Freifunk Federation Map",
+  "federation": true,
+  "refreshInterval": "120s",
+  "mapCenter": [51.1657, 10.4515],
+  "mapZoom": 6,
+  "tileLayers": [
+    {
+      "name": "OpenStreetMap",
+      "url": "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "attribution": "&copy; <a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+      "maxZoom": 19
+    },
+    {
+      "name": "OSM.HOT",
+      "url": "https://tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+      "attribution": "&copy; OpenStreetMap contributors, Tiles: HOT",
+      "maxZoom": 19
+    }
+  ]
+}

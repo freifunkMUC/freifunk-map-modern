@@ -1,0 +1,54 @@
+{
+  "listen": ":8080",
+  "siteName": "Freifunk München",
+  "dataURL": "https://map.ffmuc.net/data/meshviewer.json",
+  "refreshInterval": "60s",
+  "grafanaURL": "https://stats.ffmuc.net",
+  "grafanaDashboard": "hRIn3dRWk",
+  "grafanaOrgId": 1,
+  "mapCenter": [48.1351, 11.5820],
+  "mapZoom": 10,
+  "tileLayers": [
+    {
+      "name": "FFMUC OSM",
+      "url": "https://tiles.ext.ffmuc.net/osm/{z}/{x}/{y}.png",
+      "attribution": "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>",
+      "maxZoom": 19
+    },
+    {
+      "name": "Esri Satellite",
+      "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      "attribution": "Tiles &copy; Esri",
+      "maxZoom": 20
+    }
+  ],
+  "domainNames": {
+    "ffmuc_muc_cty": "München - Stadt",
+    "ffmuc_muc_nord": "München - Nord",
+    "ffmuc_muc_ost": "München - Ost",
+    "ffmuc_muc_sued": "München - Süd",
+    "ffmuc_muc_west": "München - West",
+    "ffmuc_uml_nord": "Bayern - Südnord",
+    "ffmuc_uml_ost": "Bayern - Südost",
+    "ffmuc_uml_sued": "Bayern - Südsüd",
+    "ffmuc_uml_west": "Bayern - Südwest",
+    "ffmuc_welt": "Welt",
+    "ffmuc_augsburg": "Augsburg",
+    "ffmuc_gauting": "Gauting",
+    "ffmuc_freising": "Freising",
+    "ffmuc_ulm": "Ulm",
+    "ffdon_mitte": "Donau-Ries - Mitte",
+    "ffdon_nordwest": "Donau-Ries - Nordwest",
+    "ffdon_sued": "Donau-Ries - Süd",
+    "ffwert_city": "Wertingen - City",
+    "ffwert_events": "Wertingen - Events"
+  },
+  "devicePictureURL": "https://map.aachen.freifunk.net/pictures-svg/{MODEL}.svg",
+  "links": [
+    {"title": "Chat", "href": "https://chat.ffmuc.net"},
+    {"title": "Tickets", "href": "https://tickets.ffmuc.net"},
+    {"title": "Statistiken", "href": "https://stats.ffmuc.net"},
+    {"title": "Kontakt", "href": "https://ffmuc.net/kontakt"},
+    {"title": "Impressum", "href": "https://ffmuc.net/impressum/"}
+  ]
+}

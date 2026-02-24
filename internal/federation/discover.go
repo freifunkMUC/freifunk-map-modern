@@ -184,7 +184,9 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 
 			tt := strings.ToLower(nm.TechnicalType)
 
-			if tt == "meshviewer" && strings.HasSuffix(u, ".json") {
+			if (tt == "meshviewer" || tt == "hopglass" || tt == "ffmap") && strings.HasSuffix(u, ".json") {
+				// Direct .json URL — could be meshviewer.json or nodes.json format.
+				// We accept both and auto-detect format at fetch time.
 				c.MeshviewerURLs = append(c.MeshviewerURLs, u)
 			} else if tt == "nodelist" && strings.HasSuffix(u, ".json") {
 				c.NodelistURLs = append(c.NodelistURLs, u)
@@ -194,6 +196,8 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 				base := strings.TrimSuffix(u, "/")
 				c.MeshviewerURLs = append(c.MeshviewerURLs, base+"/data/meshviewer.json")
 				c.MeshviewerURLs = append(c.MeshviewerURLs, base+"/meshviewer.json")
+				c.MeshviewerURLs = append(c.MeshviewerURLs, base+"/data/nodes.json")
+				c.MeshviewerURLs = append(c.MeshviewerURLs, base+"/nodes.json")
 				if parsed, err := url.Parse(u); err == nil {
 					rootData := parsed.Scheme + "://" + parsed.Host + "/data/meshviewer.json"
 					if rootData != base+"/data/meshviewer.json" {
@@ -224,6 +228,7 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 
 	// Consolidate communities with the same name
 	nameMap := make(map[string]*Community)
+	nameIdx := make(map[string]int) // name -> index in mergedComms
 	var mergedComms []Community
 	for i := range communities {
 		c := &communities[i]
@@ -232,11 +237,15 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 			merged := *c
 			merged.AllKeys = []string{c.Key}
 			nameMap[c.Name] = &merged
+			nameIdx[c.Name] = len(mergedComms)
 			mergedComms = append(mergedComms, merged)
 			continue
 		}
 		existing.AllKeys = append(existing.AllKeys, c.Key)
-		if c.Nodes > existing.Nodes {
+		// Use the sub-community with the most nodes as the primary key,
+		// breaking ties alphabetically for deterministic results.
+		if c.Nodes > existing.Nodes || (c.Nodes == existing.Nodes && c.Key < existing.Key) {
+			existing.Key = c.Key
 			existing.Nodes = c.Nodes
 			existing.Lat = c.Lat
 			existing.Lng = c.Lng
@@ -257,12 +266,7 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 		if c.Metacommunity != "" && existing.Metacommunity == "" {
 			existing.Metacommunity = c.Metacommunity
 		}
-		for j := range mergedComms {
-			if mergedComms[j].Key == existing.Key {
-				mergedComms[j] = *existing
-				break
-			}
-		}
+		mergedComms[nameIdx[c.Name]] = *existing
 	}
 	communities = mergedComms
 
@@ -282,6 +286,16 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 		ok     bool
 	}
 
+	// Shared probe client with generous timeout and connection pooling
+	probeClient := &http.Client{
+		Timeout: 8 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        200,
+			MaxIdleConnsPerHost: 4,
+			IdleConnTimeout:     30 * time.Second,
+		},
+	}
+
 	// Buffer generously — communities can produce multiple sources
 	ch := make(chan result, len(communities)*3)
 	sem := make(chan struct{}, maxConcurrency)
@@ -297,13 +311,32 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 			mapURLs := CollectMapBases(c)
 			found := false
 
+			// Track hosts that timed out — skip other URLs on the same host.
+			deadHosts := make(map[string]bool)
+			probe := func(u string) bool {
+				if parsed, err := url.Parse(u); err == nil {
+					if deadHosts[parsed.Hostname()] {
+						return false
+					}
+				}
+				ok, deadHost := ProbeURL(probeClient, u)
+				if deadHost != "" {
+					deadHosts[deadHost] = true
+				}
+				return ok
+			}
+
 			// Probe ALL meshviewer URLs — communities may have multiple
 			// distinct data sources (e.g. different domains/subpaths)
 			for _, u := range c.MeshviewerURLs {
-				if ProbeURL(client, u) {
+				if probe(u) {
+					dtype := "meshviewer"
+					if strings.HasSuffix(u, "/nodes.json") {
+						dtype = "nodes"
+					}
 					ch <- result{source: CommunitySource{
 						CommunityKey: c.Key, CommunityKeys: c.AllKeys,
-						DataURL: u, DataType: "meshviewer",
+						DataURL: u, DataType: dtype,
 						GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
 					}, ok: true}
 					found = true
@@ -313,7 +346,7 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 			// Only try nodelists if no meshviewer source worked
 			if !found {
 				for _, u := range c.NodelistURLs {
-					if ProbeURL(client, u) {
+					if probe(u) {
 						ch <- result{source: CommunitySource{
 							CommunityKey: c.Key, CommunityKeys: c.AllKeys,
 							DataURL: u, DataType: "nodelist",
@@ -321,6 +354,79 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 						}, ok: true}
 						found = true
 						break // one nodelist is enough
+					}
+				}
+			}
+
+			// For nodelist-only communities, also try to find a richer source
+			// (meshviewer.json or nodes.json) at the same base directory.
+			if found && len(c.MeshviewerURLs) == 0 {
+				tried := make(map[string]bool)
+				for _, u := range c.NodelistURLs {
+					base := u
+					if idx := strings.LastIndex(base, "/"); idx > 0 {
+						base = base[:idx]
+					}
+					for _, candidate := range []struct {
+						url   string
+						dtype string
+					}{
+						{base + "/meshviewer.json", "meshviewer"},
+						{base + "/nodes.json", "nodes"},
+					} {
+						if !tried[candidate.url] {
+							tried[candidate.url] = true
+							if probe(candidate.url) {
+								ch <- result{source: CommunitySource{
+									CommunityKey: c.Key, CommunityKeys: c.AllKeys,
+									DataURL: candidate.url, DataType: candidate.dtype,
+									GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
+								}, ok: true}
+								break
+							}
+						}
+					}
+				}
+			}
+
+			// Last resort: derive meshviewer/nodes.json URLs from nodelist base paths
+			if !found {
+				tried := make(map[string]bool)
+				for _, u := range c.MeshviewerURLs {
+					tried[u] = true
+				}
+				for _, u := range c.NodelistURLs {
+					base := u
+					if idx := strings.LastIndex(base, "/"); idx > 0 {
+						base = base[:idx]
+					}
+					// Try meshviewer.json at the nodelist's directory
+					mvURL := base + "/meshviewer.json"
+					if !tried[mvURL] {
+						tried[mvURL] = true
+						if probe(mvURL) {
+							ch <- result{source: CommunitySource{
+								CommunityKey: c.Key, CommunityKeys: c.AllKeys,
+								DataURL: mvURL, DataType: "meshviewer",
+								GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
+							}, ok: true}
+							found = true
+							break
+						}
+					}
+					// Try nodes.json at the nodelist's directory
+					nodesURL := base + "/nodes.json"
+					if !tried[nodesURL] {
+						tried[nodesURL] = true
+						if probe(nodesURL) {
+							ch <- result{source: CommunitySource{
+								CommunityKey: c.Key, CommunityKeys: c.AllKeys,
+								DataURL: nodesURL, DataType: "nodes",
+								GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
+							}, ok: true}
+							found = true
+							break
+						}
 					}
 				}
 			}
@@ -410,26 +516,228 @@ func ParseNodelistToMeshviewer(data []byte) (*store.MeshviewerData, error) {
 	return mv, nil
 }
 
+// --- nodes.json format (Yanic/hopglass output) ---
+
+type NodesJSONData struct {
+	Version   interface{}     `json:"version"`
+	Timestamp string          `json:"timestamp"`
+	Nodes     []NodesJSONNode `json:"nodes"`
+}
+
+type NodesJSONNode struct {
+	Firstseen  string              `json:"firstseen"`
+	Lastseen   string              `json:"lastseen"`
+	Flags      NodesJSONFlags      `json:"flags"`
+	Statistics NodesJSONStatistics `json:"statistics"`
+	Nodeinfo   NodesJSONNodeinfo   `json:"nodeinfo"`
+}
+
+type NodesJSONFlags struct {
+	Online  bool `json:"online"`
+	Gateway bool `json:"gateway"`
+}
+
+type NodesJSONStatistics struct {
+	NodeID      string      `json:"node_id"`
+	Clients     interface{} `json:"clients"`
+	RootfsUsage interface{} `json:"rootfs_usage"`
+	LoadAvg     interface{} `json:"loadavg"`
+	MemoryUsage interface{} `json:"memory_usage"`
+	Uptime      interface{} `json:"uptime"`
+	Gateway     string      `json:"gateway"`
+	Gateway6    string      `json:"gateway6"`
+	Processes   interface{} `json:"processes"`
+}
+
+type NodesJSONNodeinfo struct {
+	NodeID   string             `json:"node_id"`
+	Hostname string             `json:"hostname"`
+	Network  NodesJSONNetwork   `json:"network"`
+	Owner    *NodesJSONOwner    `json:"owner"`
+	System   NodesJSONSystem    `json:"system"`
+	Location *NodesJSONLocation `json:"location"`
+	Software NodesJSONSoftware  `json:"software"`
+	Hardware NodesJSONHardware  `json:"hardware"`
+	VPN      bool               `json:"vpn"`
+}
+
+type NodesJSONNetwork struct {
+	MAC       string   `json:"mac"`
+	Addresses []string `json:"addresses"`
+}
+
+type NodesJSONOwner struct {
+	Contact string `json:"contact"`
+}
+
+type NodesJSONSystem struct {
+	SiteCode   string `json:"site_code"`
+	DomainCode string `json:"domain_code"`
+}
+
+type NodesJSONLocation struct {
+	Longitude float64 `json:"longitude"`
+	Latitude  float64 `json:"latitude"`
+}
+
+type NodesJSONSoftware struct {
+	Autoupdater *NodesJSONAutoUpdater `json:"autoupdater"`
+	Firmware    *NodesJSONFirmware    `json:"firmware"`
+}
+
+type NodesJSONAutoUpdater struct {
+	Branch  string `json:"branch"`
+	Enabled bool   `json:"enabled"`
+}
+
+type NodesJSONFirmware struct {
+	Base    string `json:"base"`
+	Release string `json:"release"`
+}
+
+type NodesJSONHardware struct {
+	Nproc int    `json:"nproc"`
+	Model string `json:"model"`
+}
+
+// ParseNodesJSONToMeshviewer converts Yanic nodes.json to MeshviewerData.
+func ParseNodesJSONToMeshviewer(data []byte) (*store.MeshviewerData, error) {
+	var nj NodesJSONData
+	if err := json.Unmarshal(data, &nj); err != nil {
+		return nil, err
+	}
+
+	mv := &store.MeshviewerData{
+		Timestamp: nj.Timestamp,
+		Nodes:     make([]store.RawNode, 0, len(nj.Nodes)),
+	}
+
+	for _, n := range nj.Nodes {
+		nodeID := n.Nodeinfo.NodeID
+		if nodeID == "" {
+			nodeID = n.Statistics.NodeID
+		}
+		if nodeID == "" {
+			continue
+		}
+
+		mac := n.Nodeinfo.Network.MAC
+		if mac == "" {
+			mac = nodeID
+		}
+
+		rn := store.RawNode{
+			NodeID:    nodeID,
+			Hostname:  n.Nodeinfo.Hostname,
+			IsOnline:  store.FlexBool(n.Flags.Online),
+			IsGateway: store.FlexBool(n.Flags.Gateway),
+			Clients:   store.FlexInt(ifaceToInt(n.Statistics.Clients)),
+			Firstseen: n.Firstseen,
+			Lastseen:  n.Lastseen,
+			MAC:       mac,
+			Addresses: n.Nodeinfo.Network.Addresses,
+			Gateway:   n.Statistics.Gateway,
+			Gateway6:  n.Statistics.Gateway6,
+			Domain:    n.Nodeinfo.System.SiteCode,
+		}
+
+		if n.Statistics.LoadAvg != nil {
+			rn.LoadAvg = store.FlexFloat64(ifaceToFloat(n.Statistics.LoadAvg))
+		}
+		if n.Statistics.MemoryUsage != nil {
+			rn.MemoryUsage = store.FlexFloat64(ifaceToFloat(n.Statistics.MemoryUsage))
+		}
+		if n.Statistics.RootfsUsage != nil {
+			rn.RootfsUsage = store.FlexFloat64(ifaceToFloat(n.Statistics.RootfsUsage))
+		}
+		if n.Statistics.Uptime != nil {
+			rn.Uptime = fmt.Sprintf("%v", n.Statistics.Uptime)
+		}
+		if n.Nodeinfo.Hardware.Model != "" {
+			rn.Model = n.Nodeinfo.Hardware.Model
+		}
+		if n.Nodeinfo.Hardware.Nproc > 0 {
+			rn.Nproc = store.FlexInt(n.Nodeinfo.Hardware.Nproc)
+		}
+		if n.Nodeinfo.Software.Firmware != nil {
+			rn.Firmware = store.RawFirmware{
+				Release: n.Nodeinfo.Software.Firmware.Release,
+				Base:    n.Nodeinfo.Software.Firmware.Base,
+			}
+		}
+		if n.Nodeinfo.Software.Autoupdater != nil {
+			rn.Autoupdater = store.RawAutoUpd{
+				Enabled: store.FlexBool(n.Nodeinfo.Software.Autoupdater.Enabled),
+				Branch:  n.Nodeinfo.Software.Autoupdater.Branch,
+			}
+		}
+		if n.Nodeinfo.Owner != nil {
+			rn.Owner = n.Nodeinfo.Owner.Contact
+		}
+		if n.Nodeinfo.Location != nil && (n.Nodeinfo.Location.Latitude != 0 || n.Nodeinfo.Location.Longitude != 0) {
+			rn.Location = &store.RawLocation{
+				Latitude:  n.Nodeinfo.Location.Latitude,
+				Longitude: n.Nodeinfo.Location.Longitude,
+			}
+		}
+
+		mv.Nodes = append(mv.Nodes, rn)
+	}
+
+	return mv, nil
+}
+
 // --- Helpers ---
 
-func ProbeURL(client *http.Client, u string) bool {
+// ProbeURL checks if a URL returns a non-HTML 200 response.
+// Returns (true, "") on success.
+// Returns (false, hostname) if the host is unreachable (timeout/connection error)
+// so the caller can skip other URLs on that host.
+// Returns (false, "") for non-fatal failures (404, HTML, etc.).
+func ProbeURL(client *http.Client, u string) (bool, string) {
 	if !urlcheck.IsSafeURL(u) {
-		return false
+		return false, ""
 	}
+	parsed, _ := url.Parse(u)
+	host := ""
+	if parsed != nil {
+		host = parsed.Hostname()
+	}
+
 	req, err := http.NewRequest("HEAD", u, nil)
 	if err != nil {
-		return false
+		return false, ""
 	}
 	req.Header.Set("User-Agent", "freifunk-map-modern/1.0")
 
-	c := &http.Client{Timeout: 8 * time.Second}
-	resp, err := c.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
-		return false
+		errStr := err.Error()
+		// Timeout, connection, DNS, or TLS errors → mark host as dead
+		if strings.Contains(errStr, "deadline exceeded") ||
+			strings.Contains(errStr, "connection refused") ||
+			strings.Contains(errStr, "no such host") ||
+			strings.Contains(errStr, "no route to host") ||
+			strings.Contains(errStr, "network is unreachable") ||
+			strings.Contains(errStr, "tls:") {
+			return false, host
+		}
+		return false, ""
 	}
 	resp.Body.Close()
 
-	return resp.StatusCode == 200
+	if resp.StatusCode != 200 {
+		return false, ""
+	}
+
+	// Reject HTML responses — SPA meshviewers (e.g. Bremen) return 200
+	// with text/html for any path, including /data/meshviewer.json.
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "text/html") {
+		return false, ""
+	}
+
+	return true, ""
 }
 
 func CollectMapBases(c Community) []string {

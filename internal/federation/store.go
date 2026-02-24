@@ -272,7 +272,7 @@ func (fs *Store) DiscoverAndRefresh() error {
 	log.Printf("Federation: found %d communities with data URLs", len(communities))
 
 	log.Println("Federation: probing data source URLs...")
-	sources := ResolveBestSources(fs.client, communities, 50)
+	sources := ResolveBestSources(fs.client, communities, 30)
 	log.Printf("Federation: %d communities have reachable data sources", len(sources))
 
 	grafanaCache := DiscoverGrafanaURLs(fs.client, sources, communities)
@@ -527,6 +527,12 @@ func (fs *Store) fetchSource(src CommunitySource) (*store.MeshviewerData, error)
 		return nil, fmt.Errorf("GET %s: status %d", src.DataURL, resp.StatusCode)
 	}
 
+	// Reject HTML responses (SPA meshviewers return index.html for all URLs)
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "text/html") {
+		return nil, fmt.Errorf("GET %s: got HTML, not JSON", src.DataURL)
+	}
+
 	const maxBodySize = 20 * 1024 * 1024 // 20 MB
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
@@ -535,9 +541,26 @@ func (fs *Store) fetchSource(src CommunitySource) (*store.MeshviewerData, error)
 
 	switch src.DataType {
 	case "meshviewer":
+		// Auto-detect: if URL ends in nodes.json, or meshviewer parse yields
+		// no nodes but nodes.json parse succeeds, use nodes.json format.
+		if strings.HasSuffix(src.DataURL, "/nodes.json") {
+			if mv, err := ParseNodesJSONToMeshviewer(body); err == nil && len(mv.Nodes) > 0 {
+				return mv, nil
+			}
+		}
 		var mv store.MeshviewerData
 		if err := json.Unmarshal(body, &mv); err != nil {
+			// Fallback: try nodes.json format
+			if mv2, err2 := ParseNodesJSONToMeshviewer(body); err2 == nil && len(mv2.Nodes) > 0 {
+				return mv2, nil
+			}
 			return nil, fmt.Errorf("parsing meshviewer JSON: %w", err)
+		}
+		if len(mv.Nodes) == 0 {
+			// Meshviewer parsed but empty — try nodes.json format
+			if mv2, err := ParseNodesJSONToMeshviewer(body); err == nil && len(mv2.Nodes) > 0 {
+				return mv2, nil
+			}
 		}
 		return &mv, nil
 
@@ -545,6 +568,13 @@ func (fs *Store) fetchSource(src CommunitySource) (*store.MeshviewerData, error)
 		mv, err := ParseNodelistToMeshviewer(body)
 		if err != nil {
 			return nil, fmt.Errorf("parsing nodelist JSON: %w", err)
+		}
+		return mv, nil
+
+	case "nodes":
+		mv, err := ParseNodesJSONToMeshviewer(body)
+		if err != nil {
+			return nil, fmt.Errorf("parsing nodes.json: %w", err)
 		}
 		return mv, nil
 

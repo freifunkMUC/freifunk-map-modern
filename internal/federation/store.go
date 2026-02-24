@@ -14,6 +14,7 @@ import (
 
 	"github.com/freifunkMUC/freifunk-map-modern/internal/config"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/store"
+	"github.com/freifunkMUC/freifunk-map-modern/internal/urlcheck"
 )
 
 const stateCacheFile = "federation_state.json"
@@ -199,8 +200,12 @@ func (fs *Store) SaveState() {
 		return
 	}
 
-	if err := os.WriteFile(stateCacheFile, data, 0644); err != nil {
+	if err := os.WriteFile(stateCacheFile+".tmp", data, 0644); err != nil {
 		log.Printf("Federation cache: write error: %v", err)
+		return
+	}
+	if err := os.Rename(stateCacheFile+".tmp", stateCacheFile); err != nil {
+		log.Printf("Federation cache: rename error: %v", err)
 		return
 	}
 	log.Printf("Federation cache: saved %d nodes, %d sources (%d bytes)",
@@ -509,6 +514,9 @@ func (fs *Store) RefreshAllSources() error {
 }
 
 func (fs *Store) fetchSource(src CommunitySource) (*store.MeshviewerData, error) {
+	if !urlcheck.IsSafeURL(src.DataURL) {
+		return nil, fmt.Errorf("blocked unsafe URL: %s", src.DataURL)
+	}
 	resp, err := fs.client.Get(src.DataURL)
 	if err != nil {
 		return nil, err
@@ -519,7 +527,8 @@ func (fs *Store) fetchSource(src CommunitySource) (*store.MeshviewerData, error)
 		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	const maxBodySize = 20 * 1024 * 1024 // 20 MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
 		return nil, err
 	}

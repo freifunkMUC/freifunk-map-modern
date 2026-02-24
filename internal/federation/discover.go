@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/freifunkMUC/freifunk-map-modern/internal/store"
+	"github.com/freifunkMUC/freifunk-map-modern/internal/urlcheck"
 )
 
 const FFDirectoryURL = "https://api.freifunk.net/data/ffSummarizedDir.json"
@@ -135,7 +136,7 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 		return nil, fmt.Errorf("freifunk directory returned %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("reading directory body: %w", err)
 	}
@@ -401,6 +402,9 @@ func ParseNodelistToMeshviewer(data []byte) (*store.MeshviewerData, error) {
 // --- Helpers ---
 
 func ProbeURL(client *http.Client, u string) bool {
+	if !urlcheck.IsSafeURL(u) {
+		return false
+	}
 	req, err := http.NewRequest("HEAD", u, nil)
 	if err != nil {
 		return false

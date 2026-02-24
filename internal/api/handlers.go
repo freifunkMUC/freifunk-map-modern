@@ -14,6 +14,7 @@ import (
 	"github.com/freifunkMUC/freifunk-map-modern/internal/federation"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/sse"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/store"
+	"github.com/freifunkMUC/freifunk-map-modern/internal/urlcheck"
 )
 
 // GzipHandler wraps an http.Handler with gzip compression.
@@ -345,6 +346,10 @@ func handleNodeMetrics(cfg *config.Config, fedStore *federation.Store) http.Hand
 			dsURL := fmt.Sprintf("%s/api/datasources/proxy/%d/query?db=%s&q=%s&epoch=s",
 				grafanaURL, dsID, url.QueryEscape(dbName), url.QueryEscape(influxQuery))
 
+			if !urlcheck.IsSafeURL(dsURL) {
+				continue
+			}
+
 			req, err := http.NewRequestWithContext(r.Context(), "GET", dsURL, nil)
 			if err != nil {
 				continue
@@ -355,7 +360,7 @@ func handleNodeMetrics(cfg *config.Config, fedStore *federation.Store) http.Hand
 			if err != nil {
 				continue
 			}
-			body, err := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
 			resp.Body.Close()
 			if err != nil || resp.StatusCode != 200 {
 				continue

@@ -241,7 +241,8 @@ func (s *Store) Refresh() error {
 		return fmt.Errorf("unexpected status %d from data source", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	const maxBodySize = 20 * 1024 * 1024 // 20 MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
 	if err != nil {
 		return fmt.Errorf("reading body: %w", err)
 	}

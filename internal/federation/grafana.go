@@ -64,7 +64,8 @@ func SaveGrafanaCache(cache GrafanaCache) {
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(grafanaCacheFile, data, 0644)
+	_ = os.WriteFile(grafanaCacheFile+".tmp", data, 0644)
+	_ = os.Rename(grafanaCacheFile+".tmp", grafanaCacheFile)
 	log.Printf("Grafana cache: saved %d entries to %s", len(cache), grafanaCacheFile)
 }
 

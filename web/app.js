@@ -325,7 +325,7 @@
       const hasPos = n.lat != null && n.lng != null;
       const age = Math.floor((now - new Date(n.firstseen).getTime()) / 86400000);
       const ageStr = age === 0 ? 'today' : age + 'd ago';
-      html += `<div class="node-list-item" onclick="window.FFMap.selectNode('${n.node_id}')" style="font-size:12px">
+      html += `<div class="node-list-item" onclick="window.FFMap.selectNode('${escAttr(n.node_id)}')" style="font-size:12px">
         <span class="node-status online" style="width:8px;height:8px;flex-shrink:0"></span>
         ${hasPos ? '<span style="font-size:10px;flex-shrink:0">🌍</span>' : '<span style="width:14px;flex-shrink:0"></span>'}
         <span class="hostname">${esc(n.hostname)}</span>
@@ -504,7 +504,7 @@
     if (node.nproc) html += detailRow('CPUs', node.nproc);
     html += detailRow('Autoupdater', node.autoupdater ? `✓ ${node.branch}` : '✗ off');
     if (node.addresses && node.addresses.length > 0) {
-      html += detailRow('Addresses', `<span style="font-size:11px;word-break:break-all">${node.addresses.join('<br>')}</span>`);
+      html += detailRowHTML('Addresses', `<span style="font-size:11px;word-break:break-all">${node.addresses.map(a => esc(a)).join('<br>')}</span>`);
     }
     html += `</dl>`;
 
@@ -535,7 +535,7 @@
       node.neighbour_details.forEach(nb => {
         const dist = nb.distance > 0 ? ` · ${formatDistance(nb.distance)}` : '';
         const tq = nb.tq > 0 ? ` · TQ ${(nb.tq * 100).toFixed(0)}%` : '';
-        html += `<li class="neighbour-item" onclick="window.FFMap.selectNode('${nb.node_id}')">
+        html += `<li class="neighbour-item" onclick="window.FFMap.selectNode('${escAttr(nb.node_id)}')">
           <span class="node-status ${nb.is_online ? 'online' : 'offline'}" style="width:8px;height:8px"></span>
           <span>${esc(nb.hostname || nb.node_id)}</span>
           <span style="color:var(--fg-muted);font-size:12px;margin-left:auto">${nb.link_type || ''}${tq}${dist}</span>
@@ -1282,7 +1282,7 @@
       const linkCount = n.neighbours?.length || 0;
       const uptimeStr = (n.is_online && n.uptime && n.uptime !== '0001-01-01T00:00:00+0000') ? formatUptime(n.uptime) : '';
       const hasPos = (n.lat != null && n.lng != null);
-      html += `<div class="node-list-item" onclick="window.FFMap.selectNode('${n.node_id}')">
+      html += `<div class="node-list-item" onclick="window.FFMap.selectNode('${escAttr(n.node_id)}')">
         <span class="node-status ${n.is_online ? 'online' : 'offline'}" style="width:8px;height:8px;flex-shrink:0"></span>
         ${hasPos ? '<span title="Has location" style="font-size:10px;flex-shrink:0">🌍</span>' : '<span style="width:14px;flex-shrink:0"></span>'}
         <span class="hostname">${esc(n.hostname)}</span>
@@ -1304,7 +1304,7 @@
       ).slice(0, 10);
       if (!matches.length) { results.classList.add('hidden'); return; }
       results.innerHTML = matches.map(n =>
-        `<div class="search-item" onclick="window.FFMap.selectNode('${n.node_id}');document.getElementById('search-results').classList.add('hidden')">
+        `<div class="search-item" onclick="window.FFMap.selectNode('${escAttr(n.node_id)}');document.getElementById('search-results').classList.add('hidden')">
           <span class="node-status ${n.is_online ? 'online' : 'offline'}" style="width:8px;height:8px"></span>
           ${esc(n.hostname)}
         </div>`
@@ -1385,7 +1385,9 @@
   // ────────────────────── Helpers ──────────────────────
   async function fetchJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }
   function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-  function detailRow(l, v) { return `<dt>${l}</dt><dd>${v || '-'}</dd>`; }
+  function escAttr(s) { return esc(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;'); }
+  function detailRow(l, v) { return `<dt>${esc(l)}</dt><dd>${v != null && v !== '' ? esc(String(v)) : '-'}</dd>`; }
+  function detailRowHTML(l, v) { return `<dt>${esc(l)}</dt><dd>${v || '-'}</dd>`; }
   function progressBar(v) {
     const p = Math.min(Math.max(v * 100, 0), 100);
     return `<div class="progress-bar"><div class="progress-fill ${p < 60 ? 'bar-green' : p < 85 ? 'bar-yellow' : 'bar-red'}" style="width:${p}%"></div></div>`;

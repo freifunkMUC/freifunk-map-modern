@@ -37,6 +37,52 @@ func (fb *FlexBool) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// FlexInt handles JSON integers that may be encoded as string or float.
+type FlexInt int
+
+func (fi *FlexInt) UnmarshalJSON(data []byte) error {
+	var raw interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	switch v := raw.(type) {
+	case float64:
+		*fi = FlexInt(int(v))
+	case string:
+		n := 0
+		fmt.Sscanf(v, "%d", &n)
+		*fi = FlexInt(n)
+	default:
+		*fi = 0
+	}
+	return nil
+}
+
+// FlexFloat64 handles JSON floats that may be encoded as string or int.
+type FlexFloat64 float64
+
+func (ff *FlexFloat64) UnmarshalJSON(data []byte) error {
+	var raw interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	switch v := raw.(type) {
+	case float64:
+		*ff = FlexFloat64(v)
+	case string:
+		f := 0.0
+		fmt.Sscanf(v, "%f", &f)
+		*ff = FlexFloat64(f)
+	case bool:
+		if v {
+			*ff = 1
+		}
+	default:
+		*ff = 0
+	}
+	return nil
+}
+
 // --- Raw JSON from meshviewer.json ---
 
 type MeshviewerData struct {
@@ -50,13 +96,13 @@ type RawNode struct {
 	Lastseen    string       `json:"lastseen"`
 	IsOnline    FlexBool     `json:"is_online"`
 	IsGateway   FlexBool     `json:"is_gateway"`
-	Clients     int          `json:"clients"`
-	ClientsW24  int          `json:"clients_wifi24"`
-	ClientsW5   int          `json:"clients_wifi5"`
-	ClientsOth  int          `json:"clients_other"`
-	RootfsUsage float64      `json:"rootfs_usage"`
-	LoadAvg     float64      `json:"loadavg"`
-	MemoryUsage float64      `json:"memory_usage"`
+	Clients     FlexInt      `json:"clients"`
+	ClientsW24  FlexInt      `json:"clients_wifi24"`
+	ClientsW5   FlexInt      `json:"clients_wifi5"`
+	ClientsOth  FlexInt      `json:"clients_other"`
+	RootfsUsage FlexFloat64  `json:"rootfs_usage"`
+	LoadAvg     FlexFloat64  `json:"loadavg"`
+	MemoryUsage FlexFloat64  `json:"memory_usage"`
 	Uptime      string       `json:"uptime"`
 	GwNexthop   string       `json:"gateway_nexthop"`
 	Gateway     string       `json:"gateway"`
@@ -70,7 +116,7 @@ type RawNode struct {
 	Location    *RawLocation `json:"location,omitempty"`
 	Firmware    RawFirmware  `json:"firmware"`
 	Autoupdater RawAutoUpd   `json:"autoupdater"`
-	Nproc       int          `json:"nproc"`
+	Nproc       FlexInt      `json:"nproc"`
 	Model       string       `json:"model"`
 }
 
@@ -307,10 +353,10 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			Hostname:    rn.Hostname,
 			IsOnline:    bool(rn.IsOnline),
 			IsGateway:   bool(rn.IsGateway),
-			Clients:     rn.Clients,
-			ClientsW24:  rn.ClientsW24,
-			ClientsW5:   rn.ClientsW5,
-			ClientsOth:  rn.ClientsOth,
+			Clients:     int(rn.Clients),
+			ClientsW24:  int(rn.ClientsW24),
+			ClientsW5:   int(rn.ClientsW5),
+			ClientsOth:  int(rn.ClientsOth),
 			Domain:      rn.Domain,
 			Model:       rn.Model,
 			Firmware:    rn.Firmware.Release,
@@ -320,13 +366,13 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			Owner:       rn.Owner,
 			MAC:         rn.MAC,
 			Uptime:      rn.Uptime,
-			LoadAvg:     rn.LoadAvg,
-			MemUsage:    rn.MemoryUsage,
-			RootfsUsage: rn.RootfsUsage,
+			LoadAvg:     float64(rn.LoadAvg),
+			MemUsage:    float64(rn.MemoryUsage),
+			RootfsUsage: float64(rn.RootfsUsage),
 			Gateway:     rn.Gateway,
 			Firstseen:   rn.Firstseen,
 			Lastseen:    rn.Lastseen,
-			Nproc:       rn.Nproc,
+			Nproc:       int(rn.Nproc),
 			Addresses:   rn.Addresses,
 			ImageName:   rn.Firmware.ImageName,
 		}
@@ -351,7 +397,7 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 		stats.TotalNodes++
 		if bool(rn.IsOnline) {
 			stats.OnlineNodes++
-			stats.TotalClients += rn.Clients
+			stats.TotalClients += int(rn.Clients)
 		}
 		if bool(rn.IsGateway) {
 			stats.Gateways++

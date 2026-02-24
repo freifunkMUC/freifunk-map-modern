@@ -285,11 +285,11 @@
     markerGroup = L.layerGroup().addTo(leafletMap);
     linkLayer = L.layerGroup().addTo(leafletMap);
 
-    // Client dots canvas overlay — redraws on zoom/pan
+    // Client dots canvas overlay — placed in map container (not overlay pane) so it stays fixed during pan
     clientCanvas = document.createElement('canvas');
     clientCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:450;';
-    leafletMap.getPane('overlayPane').appendChild(clientCanvas);
-    leafletMap.on('zoomend moveend resize', drawClientDots);
+    leafletMap.getContainer().appendChild(clientCanvas);
+    leafletMap.on('move zoom moveend zoomend resize', drawClientDots);
   }
 
   // ────────────────────── Data ──────────────────────
@@ -423,9 +423,6 @@
     const size = leafletMap.getSize();
     clientCanvas.width = size.x;
     clientCanvas.height = size.y;
-    // Align canvas to map pane position
-    const panePos = leafletMap.getPane('overlayPane').style.transform;
-    clientCanvas.style.transform = ''; // reset — parent pane handles it
 
     const ctx = clientCanvas.getContext('2d');
     ctx.clearRect(0, 0, size.x, size.y);
@@ -1241,8 +1238,8 @@
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <div><div class="stat-number">${stats.online_nodes}</div><small style="color:var(--fg-muted)">Online</small></div>
         <div><div class="stat-number">${stats.total_clients}</div><small style="color:var(--fg-muted)">Clients</small></div>
-        <div><div class="stat-number">${stats.total_nodes}</div><small style="color:var(--fg-muted)">Total</small></div>
-        <div><div class="stat-number">${stats.gateways}</div><small style="color:var(--fg-muted)">Gateways</small></div>
+        <div><div class="stat-number">${stats.total_nodes}</div><small style="color:var(--fg-muted)">Total Nodes</small></div>
+        <div><div class="stat-number">${stats.online_nodes > 0 ? (stats.total_clients / stats.online_nodes).toFixed(2) : '0'}</div><small style="color:var(--fg-muted)">Clients/Node</small></div>
       </div></div>`;
 
     // Show Communities (from community tagging) and Domains separately in federation mode
@@ -1272,6 +1269,22 @@
         }
       }
 
+      // Compute per-community client stats from node data
+      const commStats = {}; // name -> {nodes, online, clients}
+      nodes.forEach(n => {
+        const comm = n.community;
+        if (!comm) return;
+        // Resolve display name via meta grouping or community name
+        const meta = metaLookup[comm];
+        const displayName = meta || communityNames[comm] || comm;
+        if (!commStats[displayName]) commStats[displayName] = { nodes: 0, online: 0, clients: 0 };
+        commStats[displayName].nodes++;
+        if (n.is_online) {
+          commStats[displayName].online++;
+          commStats[displayName].clients += n.clients || 0;
+        }
+      });
+
       // Deduplicate ungrouped communities that share a data source:
       // they'll have the exact same node count. Keep the one with the
       // highest API-reported node count (= the "real" owner of that source).
@@ -1285,7 +1298,6 @@
         if (group.length === 1) {
           standalone[group[0].name] = group[0].count;
         } else {
-          // Multiple communities with the same count — pick the largest by API node count
           group.sort((a, b) => apiNodes[b.key] - apiNodes[a.key]);
           standalone[group[0].name] = group[0].count;
         }
@@ -1296,7 +1308,18 @@
       for (const [meta, count] of Object.entries(metaTotals)) merged[meta] = count;
       for (const [name, count] of Object.entries(standalone)) merged[name] = count;
 
-      sections.push(['Communities', merged, 30]);
+      // Build community section with clients/node ratio
+      const commSorted = Object.entries(merged).sort((a, b) => b[1] - a[1]);
+      html += `<div class="stat-card"><h3>Communities (${commSorted.length})</h3>`;
+      commSorted.slice(0, 30).forEach(([name]) => {
+        const cs = commStats[name] || { nodes: 0, online: 0, clients: 0 };
+        const ratio = cs.online > 0 ? (cs.clients / cs.online).toFixed(1) : '0';
+        html += `<div style="padding:4px 0;border-bottom:1px solid var(--border)">
+          <div style="font-size:13px">${esc(name)}</div>
+          <div style="font-size:11px;color:var(--fg-muted)">${cs.online}/${cs.nodes} nodes · ${cs.clients} clients · <strong style="color:var(--fg)">${ratio}</strong> c/n</div>
+        </div>`;
+      });
+      html += `</div>`;
     }
     sections.push(['Domains', stats.domains, 20]);
     sections.push(['Gluon Version', stats.gluon_versions, 15]);

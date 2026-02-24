@@ -182,25 +182,31 @@
         Object.values(metaGroups).forEach(arr => arr.sort(sortByName));
         const sortedMetaNames = Object.keys(metaGroups).sort();
 
-        // Add ungrouped communities first, then metacommunity optgroups
+        // Build a unified sorted list so everything is alphabetically interleaved
+        const entries = [];
         ungrouped.forEach(k => {
-          const opt = document.createElement('option');
-          opt.value = k;
-          opt.textContent = communityNames[k] || k;
-          comSel.appendChild(opt);
+          entries.push({ sortKey: (communityNames[k] || k).toLowerCase(), type: 'option', key: k });
         });
         sortedMetaNames.forEach(metaName => {
           const keys = metaGroups[metaName];
           if (keys.length === 1) {
-            // Single community in meta — no need for a group
+            entries.push({ sortKey: (communityNames[keys[0]] || keys[0]).toLowerCase(), type: 'option', key: keys[0] });
+          } else {
+            entries.push({ sortKey: (communityNames[keys[0]] || keys[0]).toLowerCase(), type: 'group', metaName, keys });
+          }
+        });
+        entries.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+
+        entries.forEach(e => {
+          if (e.type === 'option') {
             const opt = document.createElement('option');
-            opt.value = keys[0];
-            opt.textContent = communityNames[keys[0]] || keys[0];
+            opt.value = e.key;
+            opt.textContent = communityNames[e.key] || e.key;
             comSel.appendChild(opt);
           } else {
             const group = document.createElement('optgroup');
-            group.label = metaName;
-            keys.forEach(k => {
+            group.label = e.metaName;
+            e.keys.forEach(k => {
               const opt = document.createElement('option');
               opt.value = k;
               opt.textContent = communityNames[k] || k;

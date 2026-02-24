@@ -281,7 +281,8 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 		ok     bool
 	}
 
-	ch := make(chan result, len(communities))
+	// Buffer generously — communities can produce multiple sources
+	ch := make(chan result, len(communities)*3)
 	sem := make(chan struct{}, maxConcurrency)
 	var wg sync.WaitGroup
 
@@ -293,7 +294,10 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 			defer func() { <-sem }()
 
 			mapURLs := CollectMapBases(c)
+			found := false
 
+			// Probe ALL meshviewer URLs — communities may have multiple
+			// distinct data sources (e.g. different domains/subpaths)
 			for _, u := range c.MeshviewerURLs {
 				if ProbeURL(client, u) {
 					ch <- result{source: CommunitySource{
@@ -301,22 +305,28 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 						DataURL: u, DataType: "meshviewer",
 						GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
 					}, ok: true}
-					return
+					found = true
 				}
 			}
 
-			for _, u := range c.NodelistURLs {
-				if ProbeURL(client, u) {
-					ch <- result{source: CommunitySource{
-						CommunityKey: c.Key, CommunityKeys: c.AllKeys,
-						DataURL: u, DataType: "nodelist",
-						GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
-					}, ok: true}
-					return
+			// Only try nodelists if no meshviewer source worked
+			if !found {
+				for _, u := range c.NodelistURLs {
+					if ProbeURL(client, u) {
+						ch <- result{source: CommunitySource{
+							CommunityKey: c.Key, CommunityKeys: c.AllKeys,
+							DataURL: u, DataType: "nodelist",
+							GrafanaURL: c.GrafanaURL, MapURLs: mapURLs,
+						}, ok: true}
+						found = true
+						break // one nodelist is enough
+					}
 				}
 			}
 
-			ch <- result{ok: false}
+			if !found {
+				ch <- result{ok: false}
+			}
 		}(c)
 	}
 

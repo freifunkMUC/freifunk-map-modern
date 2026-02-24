@@ -1494,7 +1494,7 @@
   function formatUptime(s) {
     try { const d = Date.now() - new Date(s).getTime(); if (d < 0) return '?'; const dd = Math.floor(d/86400000), hh = Math.floor((d%86400000)/3600000); return dd > 0 ? `${dd}d ${hh}h` : `${hh}h ${Math.floor((d%3600000)/60000)}m`; } catch { return s; }
   }
-  function formatDate(s) { try { return new Date(s).toLocaleString(); } catch { return s; } }
+  function formatDate(s) { if (!s) return '-'; try { const d = new Date(s); return isNaN(d) ? '-' : d.toLocaleString(); } catch { return '-'; } }
   function formatDistance(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'; }
 
   // ────────────────────── Public API ──────────────────────

@@ -19,6 +19,7 @@ A fast, modern web map for [Freifunk](https://freifunk.net/) mesh networks. Buil
 - **Search** by hostname, node ID, or model
 - **Device deprecation warnings** for end-of-life hardware
 - **No external CDN** — all vendor assets (Leaflet, uPlot) are bundled
+- **Privacy-friendly** — the only external request is to OpenStreetMap tile servers for the map background
 
 ## Quick Start
 

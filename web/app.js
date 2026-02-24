@@ -1171,26 +1171,41 @@
       communities.forEach(c => { if (c.metacommunity) metaLookup[c.key] = c.metacommunity; });
       const communityNames = {};
       communities.forEach(c => { communityNames[c.key] = c.name; });
-      const activeLookup = {};
-      communities.forEach(c => { activeLookup[c.key] = c.active; });
+      // API-reported node count (from freifunk directory, not from our data)
+      const apiNodes = {};
+      communities.forEach(c => { apiNodes[c.key] = c.nodes || 0; });
 
       const metaTotals = {};   // metacommunity name -> total nodes (deduplicated)
       const metaKeys = {};     // metacommunity name -> [keys]
-      const standalone = {};   // name -> count (no metacommunity)
+      const ungrouped = [];    // [{key, name, count}] — no metacommunity
 
       for (const [key, count] of Object.entries(stats.communities)) {
         const meta = metaLookup[key];
         if (meta) {
           if (!metaKeys[meta]) { metaKeys[meta] = []; metaTotals[meta] = 0; }
           metaKeys[meta].push(key);
-          // Use the max count since shared-source communities all get the same nodes
           if (count > metaTotals[meta]) metaTotals[meta] = count;
         } else {
-          // Skip inactive communities without metacommunity — they share
-          // a data source with an active community and would duplicate its count
-          if (activeLookup[key] !== false) {
-            standalone[communityNames[key] || key] = count;
-          }
+          ungrouped.push({ key, name: communityNames[key] || key, count });
+        }
+      }
+
+      // Deduplicate ungrouped communities that share a data source:
+      // they'll have the exact same node count. Keep the one with the
+      // highest API-reported node count (= the "real" owner of that source).
+      const byCount = {};
+      for (const c of ungrouped) {
+        if (!byCount[c.count]) byCount[c.count] = [];
+        byCount[c.count].push(c);
+      }
+      const standalone = {};
+      for (const group of Object.values(byCount)) {
+        if (group.length === 1) {
+          standalone[group[0].name] = group[0].count;
+        } else {
+          // Multiple communities with the same count — pick the largest by API node count
+          group.sort((a, b) => apiNodes[b.key] - apiNodes[a.key]);
+          standalone[group[0].name] = group[0].count;
         }
       }
 

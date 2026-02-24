@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -93,8 +94,18 @@ func DiscoverGrafanaURLs(client *http.Client, sources []CommunitySource, communi
 		if existingKeys[c.Key] {
 			continue
 		}
-		if _, exists := cache[c.Key]; exists {
-			continue
+		if entry, exists := cache[c.Key]; exists {
+			// Re-probe if cache only has relative DataPaths (stale format)
+			hasAbsolute := false
+			for _, dp := range entry.DataPaths {
+				if strings.HasPrefix(dp, "http") {
+					hasAbsolute = true
+					break
+				}
+			}
+			if entry.BaseURL != "" || hasAbsolute {
+				continue
+			}
 		}
 		mapURLs := CollectMapBases(c)
 		if len(mapURLs) > 0 {
@@ -255,7 +266,7 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 			continue
 		}
 
-		if info := extractGrafanaFromInlineConfig(body); info.BaseURL != "" || len(info.DataPaths) > 0 {
+		if info := extractGrafanaFromInlineConfig(body, base); info.BaseURL != "" || len(info.DataPaths) > 0 {
 			return info
 		}
 	}
@@ -263,9 +274,21 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 	return GrafanaInfo{}
 }
 
-func extractGrafanaFromInlineConfig(body []byte) GrafanaInfo {
+func extractGrafanaFromInlineConfig(body []byte, baseURL string) GrafanaInfo {
 	var info GrafanaInfo
 	text := string(body)
+
+	// Resolve base for relative URLs
+	parsedBase, _ := url.Parse(baseURL)
+	resolveURL := func(p string) string {
+		if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+			return p
+		}
+		if parsedBase != nil {
+			return parsedBase.Scheme + "://" + parsedBase.Host + p
+		}
+		return p
+	}
 
 	if idx := strings.Index(text, "dataPath:"); idx >= 0 {
 		sub := text[idx:]
@@ -277,7 +300,7 @@ func extractGrafanaFromInlineConfig(body []byte) GrafanaInfo {
 			if err := json.Unmarshal([]byte(arrStr), &paths); err == nil {
 				for _, p := range paths {
 					p = strings.TrimSuffix(p, "/")
-					info.DataPaths = append(info.DataPaths, p+"/meshviewer.json")
+					info.DataPaths = append(info.DataPaths, resolveURL(p+"/meshviewer.json"))
 				}
 			}
 		}

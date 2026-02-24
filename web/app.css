@@ -29,6 +29,9 @@ body {
   height: 100vh;
 }
 
+a { color: var(--accent-light); }
+a:visited { color: var(--accent-light); }
+
 #app {
   display: grid;
   grid-template-columns: var(--sidebar-width) 1fr;

@@ -566,6 +566,13 @@ func (fs *Store) fetchSource(src CommunitySource) (*store.MeshviewerData, error)
 
 	case "nodelist":
 		mv, err := ParseNodelistToMeshviewer(body)
+		if err == nil && len(mv.Nodes) > 0 {
+			return mv, nil
+		}
+		// Fallback: some communities mislabel nodes.json as "nodelist"
+		if mv2, err2 := ParseNodesJSONToMeshviewer(body); err2 == nil && len(mv2.Nodes) > 0 {
+			return mv2, nil
+		}
 		if err != nil {
 			return nil, fmt.Errorf("parsing nodelist JSON: %w", err)
 		}

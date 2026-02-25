@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Community Discovery Debug</title>
+<style>
+  :root { color-scheme: dark; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #e6edf3; padding: 20px; }
+  h1 { margin-bottom: 8px; font-size: 22px; }
+  .subtitle { color: #8b949e; margin-bottom: 16px; font-size: 14px; }
+  .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  input, select { background: #161b22; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+  input:focus, select:focus { outline: none; border-color: #58a6ff; }
+  input[type="search"] { width: 300px; }
+  .stats { color: #8b949e; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th { text-align: left; padding: 8px 12px; background: #161b22; color: #8b949e; border-bottom: 2px solid #30363d; position: sticky; top: 0; cursor: pointer; user-select: none; }
+  th:hover { color: #e6edf3; }
+  th.sorted-asc::after { content: ' ▲'; }
+  th.sorted-desc::after { content: ' ▼'; }
+  td { padding: 6px 12px; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:hover td { background: #161b22; }
+  .status-active { color: #3fb950; }
+  .status-probe_failed { color: #f85149; }
+  .status-fetch_failed { color: #d29922; }
+  .status-no_data_urls { color: #8b949e; }
+  .url-list { font-size: 11px; color: #8b949e; word-break: break-all; }
+  .url-list a { color: #58a6ff; text-decoration: none; }
+  .url-list a:hover { text-decoration: underline; }
+  .source { display: inline-block; background: #21262d; padding: 2px 6px; border-radius: 4px; margin: 1px 0; font-size: 11px; }
+  .source.meshviewer { border-left: 3px solid #3fb950; }
+  .source.nodelist { border-left: 3px solid #d29922; }
+  .source.nodes { border-left: 3px solid #58a6ff; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .badge-active { background: #0d4429; color: #3fb950; }
+  .badge-probe_failed { background: #490c11; color: #f85149; }
+  .badge-fetch_failed { background: #3d2e00; color: #d29922; }
+  .badge-no_data_urls { background: #21262d; color: #8b949e; }
+  .keys { font-size: 11px; color: #8b949e; }
+  a.back { color: #58a6ff; text-decoration: none; font-size: 14px; }
+</style>
+</head>
+<body>
+<a class="back" href="/">← Back to map</a>
+<h1>Community Discovery Debug</h1>
+<p class="subtitle">Shows all communities from the Freifunk API directory, their discovered URLs, active data sources, and node counts.</p>
+
+<div class="controls">
+  <input type="search" id="search" placeholder="Search by name or key..." autofocus>
+  <select id="status-filter">
+    <option value="">All statuses</option>
+    <option value="active">Active (serving nodes)</option>
+    <option value="probe_failed">Probe failed (URLs unreachable)</option>
+    <option value="fetch_failed">Fetch failed (source error)</option>
+    <option value="no_data_urls">No data URLs</option>
+  </select>
+  <span class="stats" id="stats"></span>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th data-sort="key">Key</th>
+      <th data-sort="name">Name</th>
+      <th data-sort="status">Status</th>
+      <th data-sort="api_nodes">API Nodes</th>
+      <th data-sort="served_nodes">Served</th>
+      <th>Discovered URLs</th>
+      <th>Active Sources</th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<script>
+let data = [];
+let sortCol = 'served_nodes';
+let sortDir = 'desc';
+
+async function loadData() {
+  const resp = await fetch('/api/debug/communities');
+  data = await resp.json();
+  render();
+}
+
+function render() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const sf = document.getElementById('status-filter').value;
+  
+  let filtered = data.filter(c => {
+    if (sf && c.status !== sf) return false;
+    if (q) {
+      const text = (c.key + ' ' + c.name + ' ' + (c.all_keys || []).join(' ')).toLowerCase();
+      return text.includes(q);
+    }
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (typeof va === 'number' && typeof vb === 'number') {
+      return sortDir === 'asc' ? va - vb : vb - va;
+    }
+    return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+
+  const totalServed = data.reduce((s, c) => s + (c.served_nodes || 0), 0);
+  const activeCount = data.filter(c => c.status === 'active').length;
+  document.getElementById('stats').textContent = 
+    `${data.length} communities | ${activeCount} active | ${totalServed.toLocaleString()} nodes served | showing ${filtered.length}`;
+
+  document.querySelectorAll('th').forEach(th => {
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    if (th.dataset.sort === sortCol) th.classList.add(sortDir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+  });
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = filtered.map(c => {
+    const urls = [];
+    (c.meshviewer_urls || []).forEach(u => urls.push(`<a href="${esc(u)}" target="_blank" title="meshviewer">${esc(shorten(u))}</a>`));
+    (c.nodelist_urls || []).forEach(u => urls.push(`<a href="${esc(u)}" target="_blank" title="nodelist">${esc(shorten(u))}</a>`));
+    
+    const sources = (c.active_sources || []).map(s => 
+      `<span class="source ${esc(s.data_type)}"><a href="${esc(s.data_url)}" target="_blank">${esc(s.data_type)}: ${esc(shorten(s.data_url))}</a></span>`
+    ).join('<br>');
+
+    const keys = (c.all_keys && c.all_keys.length > 1) ? `<div class="keys">Also: ${esc(c.all_keys.filter(k => k !== c.key).join(', '))}</div>` : '';
+
+    return `<tr>
+      <td>${esc(c.key)}${keys}</td>
+      <td>${esc(c.name)}${c.metacommunity ? `<br><span class="keys">${esc(c.metacommunity)}</span>` : ''}</td>
+      <td><span class="badge badge-${esc(c.status)}">${esc(c.status)}</span></td>
+      <td>${c.api_nodes || 0}</td>
+      <td><strong>${c.served_nodes || 0}</strong></td>
+      <td class="url-list">${urls.join('<br>') || '<em>none</em>'}</td>
+      <td>${sources || '<em>none</em>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function shorten(u) { try { const p = new URL(u); return p.hostname + p.pathname; } catch { return u; } }
+
+document.querySelectorAll('th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const col = th.dataset.sort;
+    if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else { sortCol = col; sortDir = col === 'key' || col === 'name' ? 'asc' : 'desc'; }
+    render();
+  });
+});
+
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('status-filter').addEventListener('change', render);
+
+loadData();
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
-:root {
+/* --- Dark theme (default) --- */
+:root, [data-theme="dark"] {
   --bg: #0d1117;
   --bg-secondary: #161b22;
   --bg-tertiary: #21262d;
@@ -17,6 +18,47 @@
   --header-height: 48px;
   --radius: 8px;
   --transition: 0.2s ease;
+  color-scheme: dark;
+}
+
+/* --- Light theme --- */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #e8ecf0;
+  --fg: #1f2328;
+  --fg-muted: #656d76;
+  --border: #d0d7de;
+  --accent: #0969da;
+  --accent-light: #0969da;
+  --online: #1a7f37;
+  --offline: #cf222e;
+  --new-node: #4d8c00;
+  --gateway: #8250df;
+  --link-good: #1a7f37;
+  --link-bad: #cf222e;
+  color-scheme: light;
+}
+
+/* Auto-detect: system prefers light → apply light unless overridden */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-tertiary: #e8ecf0;
+    --fg: #1f2328;
+    --fg-muted: #656d76;
+    --border: #d0d7de;
+    --accent: #0969da;
+    --accent-light: #0969da;
+    --online: #1a7f37;
+    --offline: #cf222e;
+    --new-node: #4d8c00;
+    --gateway: #8250df;
+    --link-good: #1a7f37;
+    --link-bad: #cf222e;
+    color-scheme: light;
+  }
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -412,12 +454,15 @@ header {
   z-index: 10000 !important;
 }
 
-/* Leaflet overrides for dark theme */
+/* Leaflet overrides */
+.leaflet-tile-pane.dark-tiles {
+  filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+}
 .leaflet-popup-content-wrapper {
   background: var(--bg-secondary) !important;
   color: var(--fg) !important;
   border-radius: var(--radius) !important;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3) !important;
 }
 .leaflet-popup-tip { background: var(--bg-secondary) !important; }
 .leaflet-popup-content { margin: 12px !important; font-size: 13px; }
@@ -494,3 +539,16 @@ header {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+/* --- Theme toggle --- */
+.theme-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+  color: var(--fg-muted);
+  transition: color var(--transition);
+}
+.theme-toggle:hover { color: var(--fg); }

@@ -23,6 +23,44 @@
   let graphNodes = [];
   let graphLinks = [];
   let graphCanvas, graphCtx;
+
+  // ────────────────────── Theme ──────────────────────
+  // Modes: 'auto' (follow OS), 'dark', 'light'
+  let themeMode = localStorage.getItem('theme') || 'auto';
+  let tilePane = null; // set after map init
+
+  function getEffectiveTheme() {
+    if (themeMode === 'auto') {
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+    return themeMode;
+  }
+
+  function applyTheme() {
+    const effective = getEffectiveTheme();
+    document.documentElement.setAttribute('data-theme', effective);
+    if (tilePane) {
+      tilePane.classList.toggle('dark-tiles', effective === 'dark');
+    }
+    const btn = document.getElementById('theme-toggle');
+    if (btn) {
+      btn.textContent = effective === 'dark' ? '☀️' : '🌙';
+      btn.title = `Theme: ${themeMode} (${effective})`;
+    }
+  }
+
+  function cycleTheme() {
+    // auto → dark → light → auto
+    if (themeMode === 'auto') themeMode = 'dark';
+    else if (themeMode === 'dark') themeMode = 'light';
+    else themeMode = 'auto';
+    localStorage.setItem('theme', themeMode);
+    applyTheme();
+  }
+
+  // Apply immediately (before map init) so page renders with correct theme
+  applyTheme();
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   let graphTransform = { x: 0, y: 0, k: 1 };
   let graphDrag = null;
   let graphAnimFrame = null;
@@ -287,6 +325,14 @@
     if (Object.keys(layers).length > 1) {
       L.control.layers(layers).addTo(leafletMap);
     }
+
+    // Dark tiles follow theme — set tilePane ref and apply
+    tilePane = leafletMap.getPane('tilePane');
+    applyTheme();
+
+    // Wire up header theme toggle
+    const themeBtn = document.getElementById('theme-toggle');
+    if (themeBtn) themeBtn.addEventListener('click', cycleTheme);
 
     markerGroup = L.layerGroup().addTo(leafletMap);
     linkLayer = L.layerGroup().addTo(leafletMap);

@@ -63,6 +63,7 @@ func RegisterHandlers(mux *http.ServeMux, cfg *config.Config, s *store.Store, hu
 func RegisterFederationHandlers(mux *http.ServeMux, cfg *config.Config, fs *federation.Store) {
 	mux.HandleFunc("/api/communities", handleCommunities(fs))
 	mux.HandleFunc("/api/metrics/", handleNodeMetrics(cfg, fs))
+	mux.HandleFunc("/api/debug/communities", handleDebugCommunities(fs))
 }
 
 // RegisterMetricsHandler registers the metrics route for single-community mode.
@@ -415,4 +416,123 @@ func handleNodeMetrics(cfg *config.Config, fedStore *federation.Store) http.Hand
 		w.Header().Set("Cache-Control", "public, max-age=60")
 		json.NewEncoder(w).Encode(results)
 	}
+}
+
+func handleDebugCommunities(fs *federation.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		communities := fs.GetCommunities()
+		sources := fs.GetSources()
+		grafanaCache := fs.GetGrafanaCache()
+		snap := fs.GetSnapshot()
+
+		// Build node count per community
+		nodeCounts := make(map[string]int)
+		if snap != nil {
+			for _, n := range snap.NodeList {
+				if n.Community != "" {
+					nodeCounts[n.Community]++
+				}
+			}
+		}
+
+		// Build source lookup: communityKey -> []sources
+		sourcesByKey := make(map[string][]debugSource)
+		for _, s := range sources {
+			ds := debugSource{
+				DataURL:  s.DataURL,
+				DataType: s.DataType,
+			}
+			sourcesByKey[s.CommunityKey] = append(sourcesByKey[s.CommunityKey], ds)
+			for _, ck := range s.CommunityKeys {
+				if ck != s.CommunityKey {
+					sourcesByKey[ck] = append(sourcesByKey[ck], ds)
+				}
+			}
+		}
+
+		// Filter by query parameter
+		filterKey := r.URL.Query().Get("key")
+		filterName := strings.ToLower(r.URL.Query().Get("q"))
+
+		type debugEntry struct {
+			Key            string        `json:"key"`
+			Name           string        `json:"name"`
+			URL            string        `json:"url,omitempty"`
+			Metacommunity  string        `json:"metacommunity,omitempty"`
+			AllKeys        []string      `json:"all_keys,omitempty"`
+			APINodes       int           `json:"api_nodes"`
+			ServedNodes    int           `json:"served_nodes"`
+			MeshviewerURLs []string      `json:"meshviewer_urls,omitempty"`
+			NodelistURLs   []string      `json:"nodelist_urls,omitempty"`
+			ActiveSources  []debugSource `json:"active_sources,omitempty"`
+			GrafanaURL     string        `json:"grafana_url,omitempty"`
+			Status         string        `json:"status"`
+		}
+
+		var result []debugEntry
+		for _, c := range communities {
+			if filterKey != "" && c.Key != filterKey {
+				match := false
+				for _, ak := range c.AllKeys {
+					if ak == filterKey {
+						match = true
+						break
+					}
+				}
+				if !match {
+					continue
+				}
+			}
+			if filterName != "" && !strings.Contains(strings.ToLower(c.Name), filterName) && !strings.Contains(c.Key, filterName) {
+				continue
+			}
+
+			served := nodeCounts[c.Key]
+			// Also count nodes under alternate keys
+			for _, ak := range c.AllKeys {
+				if ak != c.Key {
+					served += nodeCounts[ak]
+				}
+			}
+
+			srcs := sourcesByKey[c.Key]
+			grafana := c.GrafanaURL
+			if info, ok := grafanaCache[c.Key]; ok && grafana == "" {
+				grafana = info.BaseURL
+			}
+
+			status := "active"
+			if len(srcs) == 0 && len(c.MeshviewerURLs)+len(c.NodelistURLs) == 0 {
+				status = "no_data_urls"
+			} else if len(srcs) == 0 {
+				status = "probe_failed"
+			} else if served == 0 {
+				status = "fetch_failed"
+			}
+
+			result = append(result, debugEntry{
+				Key:            c.Key,
+				Name:           c.Name,
+				URL:            c.URL,
+				Metacommunity:  c.Metacommunity,
+				AllKeys:        c.AllKeys,
+				APINodes:       c.Nodes,
+				ServedNodes:    served,
+				MeshviewerURLs: c.MeshviewerURLs,
+				NodelistURLs:   c.NodelistURLs,
+				ActiveSources:  srcs,
+				GrafanaURL:     grafana,
+				Status:         status,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		json.NewEncoder(w).Encode(result)
+	}
+}
+
+type debugSource struct {
+	DataURL  string `json:"data_url"`
+	DataType string `json:"data_type"`
 }

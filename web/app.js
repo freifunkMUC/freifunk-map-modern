@@ -656,14 +656,21 @@
     }
 
     if (node.neighbour_details && node.neighbour_details.length > 0) {
-      html += `<h3 style="margin:16px 0 8px;font-size:14px">Links (${node.neighbour_details.length})</h3><ul class="neighbour-list">`;
+      const meshClients = node.clients + node.neighbour_details.reduce((sum, nb) => sum + (nb.clients || 0), 0);
+      html += `<div class="client-card" style="margin:16px 0 8px;padding:10px 12px;background:var(--bg-tertiary);border-radius:var(--radius);display:flex;align-items:center;gap:8px">
+        <span style="font-size:18px">🌐</span>
+        <span style="font-size:20px;font-weight:bold;color:var(--fg)">${meshClients}</span>
+        <span style="font-size:13px;color:var(--fg-muted)">Clients in local mesh</span>
+      </div>`;
+      html += `<h3 style="margin:8px 0 8px;font-size:14px">Links (${node.neighbour_details.length})</h3><ul class="neighbour-list">`;
       node.neighbour_details.forEach(nb => {
         const dist = nb.distance > 0 ? ` · ${formatDistance(nb.distance)}` : '';
         const tq = nb.tq > 0 ? ` · TQ ${(nb.tq * 100).toFixed(0)}%` : '';
+        const clients = nb.clients > 0 ? `<span style="color:var(--fg-muted);font-size:12px" title="Clients on this node">👤 ${nb.clients}</span>` : '';
         html += `<li class="neighbour-item" onclick="window.FFMap.selectNode('${escAttr(nb.node_id)}')">
           <span class="node-status ${nb.is_online ? 'online' : 'offline'}" style="width:8px;height:8px"></span>
           <span>${esc(nb.hostname || nb.node_id)}</span>
-          <span style="color:var(--fg-muted);font-size:12px;margin-left:auto">${nb.link_type || ''}${tq}${dist}</span>
+          <span style="color:var(--fg-muted);font-size:12px;margin-left:auto">${clients}${clients && (nb.link_type || tq || dist) ? ' · ' : ''}${nb.link_type || ''}${tq}${dist}</span>
         </li>`;
       });
       html += `</ul>`;
@@ -865,7 +872,7 @@
         container.appendChild(plotEl);
 
         const width = container.offsetWidth || 320;
-        new uPlot({
+        const plot = new uPlot({
           width: width,
           height: 140,
           cursor: { show: true, drag: { x: false, y: false } },
@@ -880,6 +887,9 @@
           ],
           series: seriesOpts,
         }, uData, plotEl);
+
+        // Show last datapoint values in legend by default
+        plot.setCursor({ left: plot.bbox.width / devicePixelRatio, top: 0 });
         anyData = true;
 
       } catch (e) {

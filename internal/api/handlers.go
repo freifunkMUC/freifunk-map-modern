@@ -104,6 +104,7 @@ func handleNodeDetail(s *store.Store) http.HandlerFunc {
 			NodeID   string  `json:"node_id"`
 			Hostname string  `json:"hostname"`
 			IsOnline bool    `json:"is_online"`
+			Clients  int     `json:"clients"`
 			LinkType string  `json:"link_type,omitempty"`
 			TQ       float64 `json:"tq,omitempty"`
 			Distance float64 `json:"distance,omitempty"`
@@ -120,6 +121,7 @@ func handleNodeDetail(s *store.Store) http.HandlerFunc {
 			if nn, ok := snap.Nodes[nid]; ok {
 				ni.Hostname = nn.Hostname
 				ni.IsOnline = nn.IsOnline
+				ni.Clients = nn.Clients
 			}
 			for _, l := range snap.Links {
 				if (l.Source == nodeID && l.Target == nid) || (l.Target == nodeID && l.Source == nid) {

@@ -153,6 +153,7 @@
     if (urlFilters.domain || urlFilters.status || urlFilters.model || urlFilters.community) {
       activateTab('list-tab');
     }
+    updateClearButton();
   }
 
   function setURLFilter(key, value) {
@@ -163,6 +164,59 @@
     const url = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
     window.history.replaceState(null, '', url);
     urlFilters[key] = value || '';
+  }
+
+  function clearAllFilters() {
+    const comSel = document.getElementById('list-community');
+    const domSel = document.getElementById('list-domain');
+    const filterSel = document.getElementById('list-filter');
+    const searchInput = document.getElementById('list-search');
+    if (comSel) { comSel.value = ''; setURLFilter('community', ''); }
+    if (domSel) { domSel.value = ''; setURLFilter('domain', ''); }
+    if (filterSel) { filterSel.value = 'all'; setURLFilter('status', ''); }
+    if (searchInput) { searchInput.value = ''; setURLFilter('model', ''); }
+    populateDomainOptions('');
+    updateClearButton();
+    renderNodeList();
+    renderMarkers();
+  }
+
+  function updateClearButton() {
+    const btn = document.getElementById('clear-filters');
+    if (!btn) return;
+    const hasFilters = urlFilters.community || urlFilters.domain || urlFilters.status || urlFilters.model;
+    btn.classList.toggle('hidden', !hasFilters);
+  }
+
+  function filterByCommunity(key) {
+    const comSel = document.getElementById('list-community');
+    if (comSel) {
+      comSel.value = key;
+      setURLFilter('community', key);
+      populateDomainOptions(key);
+    }
+    // Close node detail panel and switch to nodes tab
+    document.getElementById('node-detail').classList.add('hidden');
+    selectedNodeId = null;
+    activateTab('list-tab');
+    updateClearButton();
+    renderNodeList();
+    renderMarkers();
+  }
+
+  function filterByDomain(key) {
+    const domSel = document.getElementById('list-domain');
+    if (domSel) {
+      domSel.value = key;
+      setURLFilter('domain', key);
+    }
+    // Close node detail panel and switch to nodes tab
+    document.getElementById('node-detail').classList.add('hidden');
+    selectedNodeId = null;
+    activateTab('list-tab');
+    updateClearButton();
+    renderNodeList();
+    renderMarkers();
   }
 
   function populateDomainFilter() {
@@ -257,6 +311,7 @@
         comSel.addEventListener('change', () => {
           setURLFilter('community', comSel.value);
           populateDomainOptions(comSel.value);
+          updateClearButton();
           renderNodeList();
           renderMarkers();
         });
@@ -268,6 +323,7 @@
 
     domSel.addEventListener('change', () => {
       setURLFilter('domain', domSel.value);
+      updateClearButton();
       renderNodeList();
       renderMarkers();
     });
@@ -620,7 +676,13 @@
     html += detailRow('Status', node.is_online ? '🟢 Online' : '🔴 Offline');
     if (node.model) html += detailRow('Model', node.model);
     if (node.firmware) html += detailRow('Firmware', `${node.fw_base || ''} ${node.firmware}`);
-    if (node.domain_name || node.domain) html += detailRow('Domain', node.domain_name || node.domain);
+    if (node.domain_name || node.domain) html += detailRowHTML('Domain', `<a href="#" onclick="window.FFMap.filterByDomain('${escAttr(node.domain)}');return false" style="color:var(--accent);cursor:pointer;text-decoration:none">${esc(node.domain_name || node.domain)}</a>`);
+    if (node.communities && node.communities.length > 0) {
+      const commLinks = node.communities.map(c => `<a href="#" onclick="window.FFMap.filterByCommunity('${escAttr(c)}');return false" style="color:var(--accent);cursor:pointer;text-decoration:none">${esc(c)}</a>`).join(', ');
+      html += detailRowHTML('Community', commLinks);
+    } else if (node.community) {
+      html += detailRowHTML('Community', `<a href="#" onclick="window.FFMap.filterByCommunity('${escAttr(node.community)}');return false" style="color:var(--accent);cursor:pointer;text-decoration:none">${esc(node.community)}</a>`);
+    }
     if (node.owner) html += detailRow('Owner', node.owner);
     html += detailRow('MAC', node.mac);
     if (node.uptime && node.uptime !== '0001-01-01T00:00:00+0000') html += detailRow('Uptime', formatUptime(node.uptime));
@@ -1375,14 +1437,24 @@
       for (const [meta, count] of Object.entries(metaTotals)) merged[meta] = count;
       for (const [name, count] of Object.entries(standalone)) merged[name] = count;
 
+      // Build name -> community key mapping for clickable links
+      const nameToKey = {};
+      for (const [meta, keys] of Object.entries(metaKeys)) {
+        nameToKey[meta] = keys[0]; // use first key in metacommunity group
+      }
+      for (const c of ungrouped) {
+        nameToKey[c.name] = c.key;
+      }
+
       // Build community section with clients/node ratio
       const commSorted = Object.entries(merged).sort((a, b) => b[1] - a[1]);
       html += `<div class="stat-card"><h3>Communities (${commSorted.length})</h3>`;
       commSorted.slice(0, 30).forEach(([name]) => {
         const cs = commStats[name] || { nodes: 0, online: 0, clients: 0 };
         const ratio = cs.online > 0 ? (cs.clients / cs.online).toFixed(1) : '0';
-        html += `<div style="padding:4px 0;border-bottom:1px solid var(--border)">
-          <div style="font-size:13px">${esc(name)}</div>
+        const key = nameToKey[name] || '';
+        html += `<div style="padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="window.FFMap.filterByCommunity('${escAttr(key)}')">
+          <div style="font-size:13px;color:var(--accent)">${esc(name)}</div>
           <div style="font-size:11px;color:var(--fg-muted)">${cs.online}/${cs.nodes} nodes · ${cs.clients} clients · <strong style="color:var(--fg)">${ratio}</strong> c/n</div>
         </div>`;
       });
@@ -1399,7 +1471,11 @@
         const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
         html += `<div class="stat-card"><h3>${title} (${sorted.length})</h3>`;
         sorted.slice(0, limit).forEach(([k, v]) => {
-          html += `<div class="stat-row"><span class="label">${esc(k)}</span><span class="value">${v}</span></div>`;
+          if (title === 'Domains') {
+            html += `<div class="stat-row" style="cursor:pointer" onclick="window.FFMap.filterByDomain('${escAttr(k)}')"><span class="label" style="color:var(--accent)">${esc(k)}</span><span class="value">${v}</span></div>`;
+          } else {
+            html += `<div class="stat-row"><span class="label">${esc(k)}</span><span class="value">${v}</span></div>`;
+          }
         });
         html += `</div>`;
       });
@@ -1481,15 +1557,18 @@
 
     document.getElementById('list-search').addEventListener('input', () => {
       setURLFilter('model', document.getElementById('list-search').value);
+      updateClearButton();
       renderNodeList();
       renderMarkers();
     });
     document.getElementById('list-filter').addEventListener('change', () => {
       setURLFilter('status', document.getElementById('list-filter').value === 'all' ? '' : document.getElementById('list-filter').value);
+      updateClearButton();
       renderNodeList();
       renderMarkers();
     });
     document.getElementById('list-sort')?.addEventListener('change', () => renderNodeList());
+    document.getElementById('clear-filters')?.addEventListener('click', () => clearAllFilters());
   }
 
   // ────────────────────── Tabs ──────────────────────
@@ -1565,6 +1644,6 @@
   function formatDistance(m) { return m < 1000 ? Math.round(m) + ' m' : (m / 1000).toFixed(1) + ' km'; }
 
   // ────────────────────── Public API ──────────────────────
-  window.FFMap = { selectNode };
+  window.FFMap = { selectNode, filterByCommunity, filterByDomain, clearAllFilters };
   document.addEventListener('DOMContentLoaded', init);
 })();

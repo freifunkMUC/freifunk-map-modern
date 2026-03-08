@@ -5,9 +5,27 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
+
+// ClientIP extracts the client IP from the request, preferring
+// X-Forwarded-For and X-Real-IP headers set by reverse proxies.
+// This is important for rate limiting behind a reverse proxy.
+func ClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// X-Forwarded-For may contain a comma-separated list; first entry is the client
+		if i := strings.IndexByte(xff, ','); i > 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	return r.RemoteAddr
+}
 
 // Hub manages Server-Sent Event connections.
 type Hub struct {
@@ -92,10 +110,10 @@ func HandleSSE(hub *Hub) http.HandlerFunc {
 			http.Error(w, "Too many SSE clients", http.StatusServiceUnavailable)
 			return
 		}
-		log.Printf("SSE client connected from %s (%d total)", r.RemoteAddr, hub.ClientCount())
+		log.Printf("SSE client connected from %s (%d total)", ClientIP(r), hub.ClientCount())
 		defer func() {
 			hub.Unsubscribe(ch)
-			log.Printf("SSE client disconnected from %s (%d total)", r.RemoteAddr, hub.ClientCount())
+			log.Printf("SSE client disconnected from %s (%d total)", ClientIP(r), hub.ClientCount())
 		}()
 
 		fmt.Fprintf(w, ": connected\n\n")

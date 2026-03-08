@@ -238,6 +238,30 @@ type SSEBroadcaster interface {
 	ClientCount() int
 }
 
+// parseTimestamp tries multiple common timestamp formats and returns a normalised RFC3339 string.
+var timeFormats = []string{
+	time.RFC3339,
+	"2006-01-02T15:04:05-0700",
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05",
+}
+
+func parseTimestamp(s string) (time.Time, bool) {
+	for _, fmt := range timeFormats {
+		if t, err := time.Parse(fmt, s); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func normalizeTimestamp(s string) string {
+	if t, ok := parseTimestamp(s); ok {
+		return t.Format(time.RFC3339)
+	}
+	return s
+}
+
 // --- Store ---
 
 type Store struct {
@@ -370,8 +394,8 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			MemUsage:    float64(rn.MemoryUsage),
 			RootfsUsage: float64(rn.RootfsUsage),
 			Gateway:     rn.Gateway,
-			Firstseen:   rn.Firstseen,
-			Lastseen:    rn.Lastseen,
+			Firstseen:   normalizeTimestamp(rn.Firstseen),
+			Lastseen:    normalizeTimestamp(rn.Lastseen),
 			Nproc:       int(rn.Nproc),
 			Addresses:   rn.Addresses,
 			ImageName:   rn.Firmware.ImageName,
@@ -389,6 +413,15 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			lng := rn.Location.Longitude
 			n.Lat = &lat
 			n.Lng = &lng
+		}
+
+		// Skip nodes that have been offline for more than 30 days
+		if !n.IsOnline {
+			if ls, err := time.Parse(time.RFC3339, n.Lastseen); err == nil {
+				if time.Since(ls) > 30*24*time.Hour {
+					continue
+				}
+			}
 		}
 
 		nodes[rn.NodeID] = n
@@ -454,7 +487,7 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 		return strings.ToLower(nodeList[i].Hostname) < strings.ToLower(nodeList[j].Hostname)
 	})
 
-	ts, _ := time.Parse(time.RFC3339, raw.Timestamp)
+	ts, _ := parseTimestamp(raw.Timestamp)
 
 	return &Snapshot{
 		Nodes:     nodes,

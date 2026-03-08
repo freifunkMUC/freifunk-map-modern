@@ -890,6 +890,11 @@
 
         // Show last datapoint values in legend by default
         plot.setCursor({ left: plot.bbox.width / devicePixelRatio, top: 0 });
+
+        // When mouse leaves chart, restore legend to last datapoint
+        plotEl.addEventListener('mouseleave', () => {
+          plot.setCursor({ left: plot.bbox.width / devicePixelRatio, top: 0 });
+        });
         anyData = true;
 
       } catch (e) {

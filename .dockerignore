@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+federation_state.json
+grafana_cache.json
+freifunk-map-modern

@@ -387,7 +387,6 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			FWBase:      rn.Firmware.Base,
 			Autoupdater: bool(rn.Autoupdater.Enabled),
 			Branch:      rn.Autoupdater.Branch,
-			Owner:       rn.Owner,
 			MAC:         rn.MAC,
 			Uptime:      rn.Uptime,
 			LoadAvg:     float64(rn.LoadAvg),
@@ -399,6 +398,9 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			Nproc:       int(rn.Nproc),
 			Addresses:   rn.Addresses,
 			ImageName:   rn.Firmware.ImageName,
+		}
+		if s.Cfg.ShowContact {
+			n.Owner = rn.Owner
 		}
 
 		if dn, ok := s.Cfg.DomainNames[rn.Domain]; ok {

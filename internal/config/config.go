@@ -35,6 +35,8 @@ type Config struct {
 	DevicePictureURL string            `json:"devicePictureURL"`
 	EolInfoURL       string            `json:"eolInfoURL"`
 	Federation       bool              `json:"federation"`
+	// Show the contact field of nodes. Off by default: it is then dropped when data comes in.
+	ShowContact bool `json:"showContact"`
 
 	// Parsed internally
 	RefreshDuration time.Duration `json:"-"`

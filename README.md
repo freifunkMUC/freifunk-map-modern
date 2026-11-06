@@ -40,6 +40,10 @@ cp config.example.json config.json
 
 Open http://localhost:8080
 
+## Node contact
+
+The contact field of nodes is dropped by default. Set `"showContact": true` in the config to read and show it.
+
 ## Docker
 
 ```bash

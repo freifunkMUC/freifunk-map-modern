@@ -112,6 +112,7 @@ type RawNode struct {
 	Addresses   []string     `json:"addresses"`
 	Domain      string       `json:"domain"`
 	Hostname    string       `json:"hostname"`
+	Owner       string       `json:"owner"`
 	Location    *RawLocation `json:"location,omitempty"`
 	Firmware    RawFirmware  `json:"firmware"`
 	Autoupdater RawAutoUpd   `json:"autoupdater"`
@@ -165,6 +166,7 @@ type Node struct {
 	FWBase      string   `json:"fw_base,omitempty"`
 	Autoupdater bool     `json:"autoupdater"`
 	Branch      string   `json:"branch,omitempty"`
+	Owner       string   `json:"owner,omitempty"`
 	MAC         string   `json:"mac"`
 	Lat         *float64 `json:"lat,omitempty"`
 	Lng         *float64 `json:"lng,omitempty"`
@@ -396,6 +398,9 @@ func (s *Store) ProcessData(raw *MeshviewerData) *Snapshot {
 			Nproc:       int(rn.Nproc),
 			Addresses:   rn.Addresses,
 			ImageName:   rn.Firmware.ImageName,
+		}
+		if s.Cfg.ShowContact {
+			n.Owner = rn.Owner
 		}
 
 		if dn, ok := s.Cfg.DomainNames[rn.Domain]; ok {

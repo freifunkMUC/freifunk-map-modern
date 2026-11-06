@@ -683,6 +683,7 @@
     } else if (node.community) {
       html += detailRowHTML('Community', `<a href="#" onclick="window.FFMap.filterByCommunity('${escAttr(node.community)}');return false" style="color:var(--accent);cursor:pointer;text-decoration:none">${esc(node.community)}</a>`);
     }
+    if (node.owner) html += detailRow('Owner', node.owner);
     html += detailRow('MAC', node.mac);
     if (node.uptime && node.uptime !== '0001-01-01T00:00:00+0000') html += detailRow('Uptime', formatUptime(node.uptime));
     html += detailRow('First seen', formatDate(node.firstseen));

@@ -151,7 +151,6 @@ func (fs *Store) SaveState() {
 			ClientsOth:  store.FlexInt(n.ClientsOth),
 			Domain:      n.Domain,
 			MAC:         n.MAC,
-			Owner:       n.Owner,
 			Uptime:      n.Uptime,
 			LoadAvg:     store.FlexFloat64(n.LoadAvg),
 			MemoryUsage: store.FlexFloat64(n.MemUsage),

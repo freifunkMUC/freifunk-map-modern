@@ -553,7 +553,6 @@ type NodesJSONNodeinfo struct {
 	NodeID   string             `json:"node_id"`
 	Hostname string             `json:"hostname"`
 	Network  NodesJSONNetwork   `json:"network"`
-	Owner    *NodesJSONOwner    `json:"owner"`
 	System   NodesJSONSystem    `json:"system"`
 	Location *NodesJSONLocation `json:"location"`
 	Software NodesJSONSoftware  `json:"software"`
@@ -564,10 +563,6 @@ type NodesJSONNodeinfo struct {
 type NodesJSONNetwork struct {
 	MAC       string   `json:"mac"`
 	Addresses []string `json:"addresses"`
-}
-
-type NodesJSONOwner struct {
-	Contact string `json:"contact"`
 }
 
 type NodesJSONSystem struct {
@@ -670,9 +665,6 @@ func ParseNodesJSONToMeshviewer(data []byte) (*store.MeshviewerData, error) {
 				Enabled: store.FlexBool(n.Nodeinfo.Software.Autoupdater.Enabled),
 				Branch:  n.Nodeinfo.Software.Autoupdater.Branch,
 			}
-		}
-		if n.Nodeinfo.Owner != nil {
-			rn.Owner = n.Nodeinfo.Owner.Contact
 		}
 		if n.Nodeinfo.Location != nil && (n.Nodeinfo.Location.Latitude != 0 || n.Nodeinfo.Location.Longitude != 0) {
 			rn.Location = &store.RawLocation{

@@ -2,10 +2,10 @@ name: docker
 
 # Pull requests and pushes: build and smoke test; pushes to main and version
 # tags publish. A daily run rebuilds without cache and publishes only if the
-# published image has pending Alpine package upgrades or was built from
-# another base image than the Dockerfile pins now. Otherwise the digest of
-# the published tags stays as it is. A rebuild adds an unchanged
-# sha-<commit>-rN tag; latest and sha-<commit> follow. Every published image
+# published image has pending Alpine package upgrades that the fresh build
+# has fewer of, or was built from another base image than the Dockerfile pins
+# now. Otherwise the digest of the published tags stays as it is. A rebuild
+# adds an unchanged sha-<commit>-rN tag; latest and sha-<commit> follow. Every published image
 # gets BuildKit provenance, an SBOM and a signed build provenance attestation.
 
 on:
@@ -62,7 +62,7 @@ jobs:
           base_ref=$(sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile | tail -n1)
           base_digest=${base_ref##*@}
           case "$base_digest" in sha256:*) ;; *) echo "FROM is not pinned by digest: $base_ref" >&2; exit 1 ;; esac
-          build=true push=false no_cache=false
+          build=true push=false no_cache=false pending_only=
 
           case "$EVENT" in
             pull_request)
@@ -93,6 +93,8 @@ jobs:
                 echo "Base digest: published ${built_from:-none}, Dockerfile $base_digest"
                 if [ "$pending" -gt 0 ] || [ "$built_from" != "$base_digest" ]; then
                   push=true
+                  # Only the pending upgrades call for it: the fresh build must have fewer.
+                  [ "$built_from" != "$base_digest" ] || pending_only=$pending
                 else
                   echo "up to date"
                 fi
@@ -105,6 +107,7 @@ jobs:
             echo "build=$build"
             echo "push=$push"
             echo "no_cache=$no_cache"
+            echo "pending_only=$pending_only"
             echo "base_name=${base_ref%@*}"
             echo "base_digest=$base_digest"
           } >> "$GITHUB_OUTPUT"
@@ -131,13 +134,35 @@ jobs:
           docker run -d --name map --read-only --cap-drop ALL --tmpfs /data:uid=65532 -p 8080:8080 map:test
           for i in $(seq 1 20); do curl -fs http://localhost:8080/ -o /dev/null && exit 0; sleep 1; done
           docker logs map; exit 1
+      # The Dockerfile does not upgrade packages itself, so a fresh build has
+      # the same pending upgrades as the published image while Alpine is ahead
+      # of the base image. Publishing then would add a tag every day without a
+      # change: publish for pending upgrades only if the fresh build has fewer.
+      - name: Compare pending upgrades
+        id: fresh
+        if: steps.decide.outputs.build == 'true'
+        env:
+          PUSH: ${{ steps.decide.outputs.push }}
+          PENDING_ONLY: ${{ steps.decide.outputs.pending_only }}
+        run: |
+          if [ "$PUSH" = true ] && [ -n "$PENDING_ONLY" ]; then
+            upgrade=$(docker run --rm --user 0 --entrypoint sh map:test \
+              -c 'apk update >/dev/null && apk upgrade --simulate')
+            fresh=$(grep -cE '^\([0-9]+/[0-9]+\) ' <<< "$upgrade" || true)
+            echo "Pending upgrades: published $PENDING_ONLY, fresh build $fresh"
+            if [ "$fresh" -ge "$PENDING_ONLY" ]; then
+              echo "Not fewer; not publishing"
+              PUSH=false
+            fi
+          fi
+          echo "push=$PUSH" >> "$GITHUB_OUTPUT"
       # The first unused sha-<commit>-rN, found by asking the registry. Only a
       # "not found" answer means the tag is free (for -r1 also "name unknown"
       # or "denied": GHCR's answer while the package does not exist yet); any
       # other error fails the job rather than risk overwriting an immutable tag.
       - name: Rebuild number
         id: rebuild
-        if: steps.decide.outputs.push == 'true'
+        if: steps.fresh.outputs.push == 'true'
         run: |
           image="${IMAGE,,}"
           short=sha-${GITHUB_SHA::7}
@@ -163,13 +188,13 @@ jobs:
             type=sha,format=short
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.rebuild.outputs.tag }},enable=${{ steps.decide.outputs.push == 'true' }}
+            type=raw,value=${{ steps.rebuild.outputs.tag }},enable=${{ steps.fresh.outputs.push == 'true' }}
           labels: |
             org.opencontainers.image.base.name=${{ steps.decide.outputs.base_name }}
             org.opencontainers.image.base.digest=${{ steps.decide.outputs.base_digest }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: push
-        if: steps.decide.outputs.push == 'true'
+        if: steps.fresh.outputs.push == 'true'
         with:
           context: .
           push: true
@@ -180,10 +205,10 @@ jobs:
           cache-from: type=gha
       - name: Image name
         id: image
-        if: steps.decide.outputs.push == 'true'
+        if: steps.fresh.outputs.push == 'true'
         run: echo "name=${IMAGE,,}" >> "$GITHUB_OUTPUT"
       - name: Attest build provenance
-        if: steps.decide.outputs.push == 'true'
+        if: steps.fresh.outputs.push == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}

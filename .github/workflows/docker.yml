@@ -1,11 +1,29 @@
 name: docker
 
+# Pull requests and pushes: build and smoke test; pushes to main and version
+# tags publish. A daily run rebuilds without cache and publishes only if the
+# published image has pending Alpine package upgrades that the fresh build
+# has fewer of, or was built from another base image than the Dockerfile pins
+# now. Otherwise the digest of the published tags stays as it is. A rebuild
+# adds an unchanged sha-<commit>-rN tag; latest and sha-<commit> follow. Every published image
+# gets BuildKit provenance, an SBOM and a signed build provenance attestation.
+
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild and publish even if nothing changed
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    # Not at minute 0: GitHub delays or drops scheduled runs at the start of
+    # the hour.
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
@@ -21,28 +39,148 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+    # Two runs probing the same -rN would overwrite each other's tag.
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build for the test
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          load: true
-          tags: map:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Smoke test
-        run: |
-          docker run -d --name map --read-only --cap-drop ALL --tmpfs /data:uid=65532 -p 8080:8080 map:test
-          for i in $(seq 1 20); do curl -fs http://localhost:8080/ -o /dev/null && exit 0; sleep 1; done
-          docker logs map; exit 1
       - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Decide
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          image="${IMAGE,,}"  # registry names are lowercase
+          # The base image the Dockerfile builds from, and its digest.
+          base_ref=$(sed -n 's/^FROM \([^ ]*\).*/\1/p' Dockerfile | tail -n1)
+          base_digest=${base_ref##*@}
+          case "$base_digest" in sha256:*) ;; *) echo "FROM is not pinned by digest: $base_ref" >&2; exit 1 ;; esac
+          build=true push=false no_cache=false pending_only=
+
+          case "$EVENT" in
+            pull_request)
+              ;;
+            push)
+              push=true
+              ;;
+            workflow_dispatch | schedule)
+              no_cache=true
+              if [ "$FORCE" = true ]; then
+                echo "Forced"
+                push=true
+              elif ! out=$(docker pull --quiet --platform linux/amd64 "$image:latest" 2>&1); then
+                if grep -qiE 'not found|manifest unknown' <<< "$out"; then
+                  echo "Nothing published yet"
+                  push=true
+                else
+                  echo "Cannot pull $image:latest: $out" >&2
+                  exit 1
+                fi
+              else
+                # A failing "apk update" or "docker run" must not look like "nothing pending".
+                upgrade=$(docker run --rm --platform linux/amd64 --user 0 --entrypoint sh "$image:latest" \
+                  -c 'apk update >/dev/null && apk upgrade --simulate') || exit 1
+                pending=$(grep -cE '^\([0-9]+/[0-9]+\) ' <<< "$upgrade" || true)
+                built_from=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.base.digest" }}' "$image:latest")
+                echo "Pending upgrades: $pending"
+                echo "Base digest: published ${built_from:-none}, Dockerfile $base_digest"
+                if [ "$pending" -gt 0 ] || [ "$built_from" != "$base_digest" ]; then
+                  push=true
+                  # Only the pending upgrades call for it: the fresh build must have fewer.
+                  [ "$built_from" != "$base_digest" ] || pending_only=$pending
+                else
+                  echo "up to date"
+                fi
+              fi
+              [ "$push" = true ] || build=false
+              ;;
+          esac
+
+          {
+            echo "build=$build"
+            echo "push=$push"
+            echo "no_cache=$no_cache"
+            echo "pending_only=$pending_only"
+            echo "base_name=${base_ref%@*}"
+            echo "base_digest=$base_digest"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        if: steps.decide.outputs.build == 'true'
+      # A scheduled or manual build ignores the cache: a cached "apk add"
+      # layer would carry old packages. Its layers go into the cache for the
+      # publish build below. Loaded into the local daemon, which cannot hold
+      # attestations: no provenance here, the published build has it.
+      - name: Build for the test
+        if: steps.decide.outputs.build == 'true'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: map:test
+          no-cache: ${{ steps.decide.outputs.no_cache == 'true' }}
+          cache-from: type=gha,scope=map
+          # own scope: the publish reads what the check build wrote
+          cache-to: type=gha,mode=max,scope=map
+          provenance: false
+      - name: Smoke test
+        if: steps.decide.outputs.build == 'true'
+        run: |
+          docker run -d --name map --read-only --cap-drop ALL --tmpfs /data:uid=65532 -p 8080:8080 map:test
+          for i in $(seq 1 20); do curl -fs http://localhost:8080/ -o /dev/null && exit 0; sleep 1; done
+          docker logs map; exit 1
+      # The Dockerfile does not upgrade packages itself, so a fresh build has
+      # the same pending upgrades as the published image while Alpine is ahead
+      # of the base image. Publishing then would add a tag every day without a
+      # change: publish for pending upgrades only if the fresh build has fewer.
+      - name: Compare pending upgrades
+        id: fresh
+        if: steps.decide.outputs.build == 'true'
+        env:
+          PUSH: ${{ steps.decide.outputs.push }}
+          PENDING_ONLY: ${{ steps.decide.outputs.pending_only }}
+        run: |
+          if [ "$PUSH" = true ] && [ -n "$PENDING_ONLY" ]; then
+            upgrade=$(docker run --rm --user 0 --entrypoint sh map:test \
+              -c 'apk update >/dev/null && apk upgrade --simulate')
+            fresh=$(grep -cE '^\([0-9]+/[0-9]+\) ' <<< "$upgrade" || true)
+            echo "Pending upgrades: published $PENDING_ONLY, fresh build $fresh"
+            if [ "$fresh" -ge "$PENDING_ONLY" ]; then
+              echo "Not fewer; not publishing"
+              PUSH=false
+            fi
+          fi
+          echo "push=$PUSH" >> "$GITHUB_OUTPUT"
+      # The first unused sha-<commit>-rN, found by asking the registry. Only a
+      # "not found" answer means the tag is free (for -r1 also "name unknown"
+      # or "denied": GHCR's answer while the package does not exist yet); any
+      # other error fails the job rather than risk overwriting an immutable tag.
+      - name: Rebuild number
+        id: rebuild
+        if: steps.fresh.outputs.push == 'true'
+        run: |
+          image="${IMAGE,,}"
+          short=sha-${GITHUB_SHA::7}
+          n=1
+          while true; do
+            if out=$(docker buildx imagetools inspect "$image:$short-r$n" 2>&1); then
+              n=$((n + 1))
+            elif grep -qiE 'not found|manifest unknown' <<< "$out"; then
+              break
+            elif [ "$n" = 1 ] && grep -qiE 'name unknown|denied' <<< "$out"; then
+              break
+            else
+              echo "Cannot probe $image:$short-r$n: $out" >&2
+              exit 1
+            fi
+          done
+          echo "tag=$short-r$n" >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
@@ -51,22 +189,27 @@ jobs:
             type=sha,format=short
             type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.rebuild.outputs.tag }},enable=${{ steps.fresh.outputs.push == 'true' }}
+          labels: |
+            org.opencontainers.image.base.name=${{ steps.decide.outputs.base_name }}
+            org.opencontainers.image.base.digest=${{ steps.decide.outputs.base_digest }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: push
-        if: github.event_name != 'pull_request'
+        if: steps.fresh.outputs.push == 'true'
         with:
           context: .
           push: true
-          provenance: false
+          provenance: mode=max
+          sbom: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          cache-from: type=gha,scope=map
       - name: Image name
         id: image
-        if: github.event_name != 'pull_request'
+        if: steps.fresh.outputs.push == 'true'
         run: echo "name=${IMAGE,,}" >> "$GITHUB_OUTPUT"
       - name: Attest build provenance
-        if: github.event_name != 'pull_request'
+        if: steps.fresh.outputs.push == 'true'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.image.outputs.name }}

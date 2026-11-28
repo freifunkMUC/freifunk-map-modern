@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/freifunkMUC/freifunk-map-modern/internal/httpclient"
 )
 
 const grafanaCacheFile = "grafana_cache.json"
@@ -216,7 +218,7 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 		}
 	}
 
-	probeClient := &http.Client{Timeout: 8 * time.Second}
+	probeClient := httpclient.New(8*time.Second, nil)
 	deadHosts := make(map[string]bool)
 
 	isHostDead := func(rawURL string) bool {
@@ -251,7 +253,6 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 		if err != nil {
 			continue
 		}
-		req.Header.Set("User-Agent", "freifunk-map-modern/1.0")
 
 		resp, err := probeClient.Do(req)
 		if err != nil {
@@ -286,7 +287,6 @@ func discoverGrafanaForSource(client *http.Client, src CommunitySource) GrafanaI
 		if err != nil {
 			continue
 		}
-		req.Header.Set("User-Agent", "freifunk-map-modern/1.0")
 
 		resp, err := probeClient.Do(req)
 		if err != nil {
@@ -477,14 +477,13 @@ func deepScanForGrafana(v interface{}) string {
 }
 
 func discoverDatasource(client *http.Client, info GrafanaInfo) GrafanaInfo {
-	probeClient := &http.Client{Timeout: 8 * time.Second}
+	probeClient := httpclient.New(8*time.Second, nil)
 	dsURL := strings.TrimSuffix(info.BaseURL, "/") + "/api/datasources"
 
 	req, err := http.NewRequest("GET", dsURL, nil)
 	if err != nil {
 		return info
 	}
-	req.Header.Set("User-Agent", "freifunk-map-modern/1.0")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := probeClient.Do(req)

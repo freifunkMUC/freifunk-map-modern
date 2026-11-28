@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/freifunkMUC/freifunk-map-modern/internal/config"
+	"github.com/freifunkMUC/freifunk-map-modern/internal/httpclient"
 )
 
 // FlexBool handles JSON booleans that may be encoded as bool, string ("1"/"0"/""), or number.
@@ -274,7 +275,7 @@ type Store struct {
 func New(cfg *config.Config) *Store {
 	return &Store{
 		Cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: httpclient.New(30*time.Second, nil),
 		snapshot: &Snapshot{
 			Nodes: make(map[string]*Node),
 			Stats: Stats{

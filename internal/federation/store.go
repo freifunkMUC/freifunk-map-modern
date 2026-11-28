@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/freifunkMUC/freifunk-map-modern/internal/config"
+	"github.com/freifunkMUC/freifunk-map-modern/internal/httpclient"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/store"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/urlcheck"
 )
@@ -32,10 +33,8 @@ type Store struct {
 
 func NewStore(cfg *config.Config) *Store {
 	return &Store{
-		Store: store.New(cfg),
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		Store:        store.New(cfg),
+		client:       httpclient.New(30*time.Second, nil),
 		grafanaCache: make(GrafanaCache),
 		nodeCommMap:  make(map[string][]string),
 	}

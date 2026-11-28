@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/freifunkMUC/freifunk-map-modern/internal/httpclient"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/store"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/urlcheck"
 )
@@ -124,7 +125,6 @@ func DiscoverCommunities(client *http.Client) ([]Community, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "freifunk-map-modern/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -287,14 +287,11 @@ func ResolveBestSources(client *http.Client, communities []Community, maxConcurr
 	}
 
 	// Shared probe client with generous timeout and connection pooling
-	probeClient := &http.Client{
-		Timeout: 8 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        200,
-			MaxIdleConnsPerHost: 4,
-			IdleConnTimeout:     30 * time.Second,
-		},
-	}
+	probeClient := httpclient.New(8*time.Second, &http.Transport{
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 4,
+		IdleConnTimeout:     30 * time.Second,
+	})
 
 	// Buffer generously — communities can produce multiple sources
 	ch := make(chan result, len(communities)*3)
@@ -708,7 +705,6 @@ func ProbeURL(client *http.Client, u string) (bool, string) {
 	if err != nil {
 		return false, ""
 	}
-	req.Header.Set("User-Agent", "freifunk-map-modern/1.0")
 
 	resp, err := client.Do(req)
 	if err != nil {

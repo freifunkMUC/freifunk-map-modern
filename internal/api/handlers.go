@@ -12,6 +12,7 @@ import (
 
 	"github.com/freifunkMUC/freifunk-map-modern/internal/config"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/federation"
+	"github.com/freifunkMUC/freifunk-map-modern/internal/httpclient"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/sse"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/store"
 	"github.com/freifunkMUC/freifunk-map-modern/internal/urlcheck"
@@ -248,7 +249,7 @@ func handleClientConfig(cfg *config.Config) http.HandlerFunc {
 }
 
 func handleNodeMetrics(cfg *config.Config, fedStore *federation.Store) http.HandlerFunc {
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpclient.New(15*time.Second, nil)
 
 	queries := map[string]string{
 		"clients":         `SELECT round(mean("clients.total")) FROM "node" WHERE ("nodeid" =~ /^%s$/) AND time >= now() - %s GROUP BY time(%s) fill(null)`,
